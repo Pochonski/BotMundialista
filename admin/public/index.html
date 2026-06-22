@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BotMundialista - Admin Panel</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: {
+              900: '#020617',
+              800: '#0F172A',
+              700: '#1E293B',
+              600: '#334155',
+            },
+            accent: '#22C55E',
+          },
+          fontFamily: {
+            sans: ['Fira Sans', 'sans-serif'],
+            mono: ['Fira Code', 'monospace'],
+          },
+        }
+      }
+    }
+  </script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Fira Sans', sans-serif;
+      background: #020617;
+      color: #F8FAFC;
+      min-height: 100vh;
+    }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0F172A; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    /* Skeleton animation */
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .skeleton {
+      background: linear-gradient(90deg, #1E293B 25%, #334155 50%, #1E293B 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 4px;
+    }
+
+    /* Glass card effect */
+    .glass-card {
+      background: rgba(30, 41, 59, 0.5);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(51, 65, 85, 0.5);
+    }
+
+    /* Table row hover glow */
+    .table-row:hover {
+      background: rgba(34, 197, 94, 0.05);
+      box-shadow: 0 0 20px rgba(34, 197, 94, 0.1);
+    }
+
+    /* Sidebar transition */
+    .sidebar { transition: width 0.3s ease, transform 0.3s ease; }
+
+    /* Focus states */
+    button:focus-visible, a:focus-visible {
+      outline: 2px solid #22C55E;
+      outline-offset: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="flex min-h-screen">
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar fixed left-0 top-0 h-full w-64 bg-surface-800 border-r border-surface-600 z-40 hidden lg:block">
+      <div class="p-6 border-b border-surface-600">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center">
+            <i data-lucide="bot" class="w-6 h-6 text-accent"></i>
+          </div>
+          <div>
+            <h1 class="font-semibold text-lg">BotMundialista</h1>
+            <p class="text-xs text-slate-400">Admin Panel</p>
+          </div>
+        </div>
+      </div>
+
+      <nav class="p-4 space-y-1">
+        <a href="#stats" class="flex items-center gap-3 px-4 py-3 rounded-lg bg-accent/10 text-accent cursor-pointer transition-all duration-200 hover:bg-accent/20">
+          <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+          <span>Dashboard</span>
+        </a>
+        <a href="#queries" class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 cursor-pointer transition-all duration-200 hover:bg-surface-700 hover:text-white">
+          <i data-lucide="message-square" class="w-5 h-5"></i>
+          <span>Consultas</span>
+        </a>
+        <a href="#users" class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 cursor-pointer transition-all duration-200 hover:bg-surface-700 hover:text-white">
+          <i data-lucide="users" class="w-5 h-5"></i>
+          <span>Usuarios</span>
+        </a>
+        <a href="#teams" class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 cursor-pointer transition-all duration-200 hover:bg-surface-700 hover:text-white">
+          <i data-lucide="heart" class="w-5 h-5"></i>
+          <span>Equipos</span>
+        </a>
+      </nav>
+
+      <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-surface-600">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full bg-accent/30 flex items-center justify-center">
+            <i data-lucide="shield-check" class="w-4 h-4 text-accent"></i>
+          </div>
+          <div class="text-sm">
+            <p class="text-white">Sistema</p>
+            <p class="text-xs text-slate-400 flex items-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-accent animate-pulse"></span>
+              Online
+            </p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Mobile header -->
+    <header class="lg:hidden fixed top-0 left-0 right-0 h-16 bg-surface-800 border-b border-surface-600 z-40 flex items-center justify-between px-4">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center">
+          <i data-lucide="bot" class="w-5 h-5 text-accent"></i>
+        </div>
+        <span class="font-semibold">BotMundialista</span>
+      </div>
+      <button id="menuBtn" class="p-2 rounded-lg hover:bg-surface-700 cursor-pointer">
+        <i data-lucide="menu" class="w-6 h-6"></i>
+      </button>
+    </header>
+
+    <!-- Mobile sidebar overlay -->
+    <div id="mobileOverlay" class="fixed inset-0 bg-black/60 z-50 hidden lg:hidden" onclick="toggleSidebar()"></div>
+    <aside id="mobileSidebar" class="sidebar fixed left-0 top-0 h-full w-72 bg-surface-800 z-50 transform -translate-x-full lg:hidden">
+      <div class="p-4 border-b border-surface-600 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center">
+            <i data-lucide="bot" class="w-6 h-6 text-accent"></i>
+          </div>
+          <span class="font-semibold">BotMundialista</span>
+        </div>
+        <button onclick="toggleSidebar()" class="p-2 rounded-lg hover:bg-surface-700 cursor-pointer">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <nav class="p-4 space-y-1">
+        <a href="#stats" onclick="toggleSidebar()" class="flex items-center gap-3 px-4 py-3 rounded-lg bg-accent/10 text-accent cursor-pointer">
+          <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+          <span>Dashboard</span>
+        </a>
+        <a href="#queries" onclick="toggleSidebar()" class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 cursor-pointer hover:bg-surface-700">
+          <i data-lucide="message-square" class="w-5 h-5"></i>
+          <span>Consultas</span>
+        </a>
+        <a href="#users" onclick="toggleSidebar()" class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 cursor-pointer hover:bg-surface-700">
+          <i data-lucide="users" class="w-5 h-5"></i>
+          <span>Usuarios</span>
+        </a>
+        <a href="#teams" onclick="toggleSidebar()" class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 cursor-pointer hover:bg-surface-700">
+          <i data-lucide="heart" class="w-5 h-5"></i>
+          <span>Equipos</span>
+        </a>
+      </nav>
+    </aside>
+
+    <!-- Main content -->
+    <main class="flex-1 lg:ml-64 pt-16 lg:pt-0">
+
+      <!-- Stats section -->
+      <section id="stats" class="p-6 lg:p-8">
+        <div class="mb-8">
+          <h2 class="text-2xl font-bold mb-1">Dashboard</h2>
+          <p class="text-slate-400 text-sm">Resumen de actividad del bot</p>
+        </div>
+
+        <!-- Stats Bento Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+
+          <!-- Users Card -->
+          <div class="glass-card rounded-2xl p-6 cursor-pointer hover:border-accent/30 transition-all duration-200">
+            <div class="flex items-start justify-between mb-4">
+              <div class="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                <i data-lucide="users" class="w-6 h-6 text-blue-400"></i>
+              </div>
+              <span class="text-xs text-slate-400 uppercase tracking-wide">Total</span>
+            </div>
+            <div id="stat-users" class="skeleton h-8 w-20 mb-2"></div>
+            <p class="text-slate-400 text-sm">Usuarios registrados</p>
+          </div>
+
+          <!-- Queries Card -->
+          <div class="glass-card rounded-2xl p-6 cursor-pointer hover:border-accent/30 transition-all duration-200">
+            <div class="flex items-start justify-between mb-4">
+              <div class="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center">
+                <i data-lucide="message-square" class="w-6 h-6 text-purple-400"></i>
+              </div>
+              <span class="text-xs text-slate-400 uppercase tracking-wide">Total</span>
+            </div>
+            <div id="stat-queries" class="skeleton h-8 w-20 mb-2"></div>
+            <p class="text-slate-400 text-sm">Consultas totales</p>
+          </div>
+
+          <!-- Today Card -->
+          <div class="glass-card rounded-2xl p-6 cursor-pointer hover:border-accent/30 transition-all duration-200">
+            <div class="flex items-start justify-between mb-4">
+              <div class="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
+                <i data-lucide="calendar" class="w-6 h-6 text-amber-400"></i>
+              </div>
+              <span class="text-xs text-slate-400 uppercase tracking-wide">Hoy</span>
+            </div>
+            <div id="stat-today" class="skeleton h-8 w-16 mb-2"></div>
+            <p class="text-slate-400 text-sm">Consultas hoy</p>
+          </div>
+
+          <!-- Teams Card -->
+          <div class="glass-card rounded-2xl p-6 cursor-pointer hover:border-accent/30 transition-all duration-200">
+            <div class="flex items-start justify-between mb-4">
+              <div class="w-12 h-12 rounded-xl bg-accent/20 flex items-center justify-center">
+                <i data-lucide="heart" class="w-6 h-6 text-accent"></i>
+              </div>
+              <span class="text-xs text-slate-400 uppercase tracking-wide">Seguid.</span>
+            </div>
+            <div id="stat-teams" class="skeleton h-8 w-16 mb-2"></div>
+            <p class="text-slate-400 text-sm">Equipos seguidos</p>
+          </div>
+        </div>
+
+        <!-- Chart Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div class="glass-card rounded-2xl p-6">
+            <h3 class="font-semibold mb-4 flex items-center gap-2">
+              <i data-lucide="bar-chart-3" class="w-5 h-5 text-accent"></i>
+              Consultas por Tipo
+            </h3>
+            <div class="h-64">
+              <canvas id="typeChart"></canvas>
+            </div>
+          </div>
+
+          <div class="glass-card rounded-2xl p-6">
+            <h3 class="font-semibold mb-4 flex items-center gap-2">
+              <i data-lucide="activity" class="w-5 h-5 text-accent"></i>
+              Actividad Reciente
+            </h3>
+            <div id="recentActivity" class="space-y-3 overflow-auto h-64">
+              <div class="skeleton h-12 w-full"></div>
+              <div class="skeleton h-12 w-full"></div>
+              <div class="skeleton h-12 w-full"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Queries section -->
+      <section id="queries" class="p-6 lg:p-8 pt-0">
+        <div class="glass-card rounded-2xl overflow-hidden">
+          <div class="p-6 border-b border-surface-600 flex items-center justify-between flex-wrap gap-4">
+            <h3 class="font-semibold flex items-center gap-2">
+              <i data-lucide="message-square" class="w-5 h-5 text-accent"></i>
+              Consultas Recientes
+            </h3>
+            <button onclick="loadQueries()" class="px-4 py-2 rounded-lg bg-surface-700 hover:bg-surface-600 transition-colors cursor-pointer flex items-center gap-2 text-sm">
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+              Actualizar
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="bg-surface-800 text-slate-400 text-xs uppercase tracking-wide">
+                <tr>
+                  <th class="px-6 py-4 text-left font-medium">Fecha</th>
+                  <th class="px-6 py-4 text-left font-medium">Usuario</th>
+                  <th class="px-6 py-4 text-left font-medium">Consulta</th>
+                  <th class="px-6 py-4 text-left font-medium">Tipo</th>
+                </tr>
+              </thead>
+              <tbody id="queriesTable" class="divide-y divide-surface-600">
+                <tr><td colspan="4" class="px-6 py-8 text-center text-slate-500">Cargando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Users section -->
+      <section id="users" class="p-6 lg:p-8 pt-0 hidden">
+        <div class="glass-card rounded-2xl overflow-hidden">
+          <div class="p-6 border-b border-surface-600">
+            <h3 class="font-semibold flex items-center gap-2">
+              <i data-lucide="users" class="w-5 h-5 text-accent"></i>
+              Usuarios Registrados
+            </h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="bg-surface-800 text-slate-400 text-xs uppercase tracking-wide">
+                <tr>
+                  <th class="px-6 py-4 text-left font-medium">Alias</th>
+                  <th class="px-6 py-4 text-left font-medium">ID</th>
+                  <th class="px-6 py-4 text-left font-medium">Fecha Registro</th>
+                  <th class="px-6 py-4 text-left font-medium">Estado</th>
+                </tr>
+              </thead>
+              <tbody id="usersTable" class="divide-y divide-surface-600">
+                <tr><td colspan="4" class="px-6 py-8 text-center text-slate-500">Cargando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Teams section -->
+      <section id="teams" class="p-6 lg:p-8 pt-0 hidden">
+        <div class="glass-card rounded-2xl overflow-hidden">
+          <div class="p-6 border-b border-surface-600">
+            <h3 class="font-semibold flex items-center gap-2">
+              <i data-lucide="heart" class="w-5 h-5 text-accent"></i>
+              Equipos Seguidos
+            </h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="bg-surface-800 text-slate-400 text-xs uppercase tracking-wide">
+                <tr>
+                  <th class="px-6 py-4 text-left font-medium">Equipo</th>
+                  <th class="px-6 py-4 text-left font-medium">Usuario</th>
+                  <th class="px-6 py-4 text-left font-medium">Fecha</th>
+                </tr>
+              </thead>
+              <tbody id="teamsTable" class="divide-y divide-surface-600">
+                <tr><td colspan="3" class="px-6 py-8 text-center text-slate-500">Cargando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    const API = '/api';
+    let typeChart = null;
+
+    // Initialize Lucide icons
+    lucide.createIcons();
+
+    // Mobile sidebar toggle
+    function toggleSidebar() {
+      const overlay = document.getElementById('mobileOverlay');
+      const sidebar = document.getElementById('mobileSidebar');
+      overlay.classList.toggle('hidden');
+      sidebar.classList.toggle('-translate-x-full');
+    }
+
+    document.getElementById('menuBtn')?.addEventListener('click', toggleSidebar);
+
+    // Fetch helper
+    async function fetchJSON(url) {
+      try {
+        const res = await fetch(API + url);
+        if (!res.ok) throw new Error('Network error');
+        return await res.json();
+      } catch (e) {
+        console.error(e);
+        return null;
+      }
+    }
+
+    // Format date
+    function formatDate(dateStr) {
+      if (!dateStr) return '-';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toLocaleString('es-ES', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    // Badge class by type
+    function getBadgeClass(tipo) {
+      const map = {
+        'partidos_hoy': 'bg-blue-500/20 text-blue-400',
+        'partidos_fecha': 'bg-blue-500/20 text-blue-400',
+        'resultado': 'bg-purple-500/20 text-purple-400',
+        'resultado_vs': 'bg-purple-500/20 text-purple-400',
+        'estadistica': 'bg-amber-500/20 text-amber-400',
+        'tabla': 'bg-amber-500/20 text-amber-400',
+        'analisis': 'bg-pink-500/20 text-pink-400',
+        'info_equipo': 'bg-cyan-500/20 text-cyan-400',
+        'seguir_equipo': 'bg-accent/20 text-accent',
+        'dejar_seguir': 'bg-red-500/20 text-red-400',
+        'mis_equipos': 'bg-accent/20 text-accent',
+        'help': 'bg-slate-500/20 text-slate-400',
+        'saludo': 'bg-green-500/20 text-green-400'
+      };
+      return map[tipo] || 'bg-slate-500/20 text-slate-400';
+    }
+
+    // Load stats
+    async function loadStats() {
+      const data = await fetchJSON('/stats');
+      if (data) {
+        document.getElementById('stat-users').outerHTML = `<h3 id="stat-users" class="text-3xl font-bold font-mono text-accent">${data.totalUsers || 0}</h3>`;
+        document.getElementById('stat-queries').outerHTML = `<h3 id="stat-queries" class="text-3xl font-bold font-mono text-accent">${data.totalQueries || 0}</h3>`;
+        document.getElementById('stat-today').outerHTML = `<h3 id="stat-today" class="text-3xl font-bold font-mono text-accent">${data.todayQueries || 0}</h3>`;
+        document.getElementById('stat-teams').outerHTML = `<h3 id="stat-teams" class="text-3xl font-bold font-mono text-accent">${data.teamsFollowed || 0}</h3>`;
+      }
+    }
+
+    // Load type chart
+    async function loadTypeChart() {
+      const data = await fetchJSON('/queries-by-type');
+      if (!data || data.length === 0) return;
+
+      const ctx = document.getElementById('typeChart').getContext('2d');
+
+      if (typeChart) typeChart.destroy();
+
+      const labels = data.map(d => d.tipo || 'desconocido');
+      const values = data.map(d => d.total);
+
+      typeChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Consultas',
+            data: values,
+            backgroundColor: [
+              'rgba(34, 197, 94, 0.8)',  // green
+              'rgba(59, 130, 246, 0.8)', // blue
+              'rgba(168, 85, 247, 0.8)', // purple
+              'rgba(244, 63, 94, 0.8)',  // pink
+              'rgba(245, 158, 11, 0.8)', // amber
+              'rgba(6, 182, 212, 0.8)',  // cyan
+            ],
+            borderRadius: 8,
+            borderSkipped: false,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(51, 65, 85, 0.5)' },
+              ticks: { color: '#94A3B8', font: { family: 'Fira Code', size: 10 } }
+            },
+            y: {
+              grid: { color: 'rgba(51, 65, 85, 0.5)' },
+              ticks: { color: '#94A3B8', font: { family: 'Fira Code' } }
+            }
+          }
+        }
+      });
+    }
+
+    // Load recent activity
+    async function loadRecentActivity() {
+      const data = await fetchJSON('/queries?limit=5');
+      const container = document.getElementById('recentActivity');
+
+      if (!data || data.length === 0) {
+        container.innerHTML = '<p class="text-slate-500 text-center py-4">Sin actividad reciente</p>';
+        return;
+      }
+
+      container.innerHTML = data.map(q => `
+        <div class="flex items-center gap-4 p-3 rounded-lg bg-surface-800/50 hover:bg-surface-700/50 transition-colors">
+          <div class="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
+            <i data-lucide="message-circle" class="w-5 h-5 text-accent"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="font-medium truncate">${q.consulta}</p>
+            <p class="text-xs text-slate-400">${q.alias || 'Usuario'} • ${formatDate(q.fecha)}</p>
+          </div>
+          <span class="px-2 py-1 rounded text-xs ${getBadgeClass(q.tipo)}">${q.tipo}</span>
+        </div>
+      `).join('');
+
+      lucide.createIcons();
+    }
+
+    // Load queries table
+    async function loadQueries() {
+      const data = await fetchJSON('/queries?limit=50');
+      const tbody = document.getElementById('queriesTable');
+
+      if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-slate-500">Sin consultas aún</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.map(q => `
+        <tr class="table-row transition-all duration-200">
+          <td class="px-6 py-4 text-sm font-mono text-slate-400 whitespace-nowrap">${formatDate(q.fecha)}</td>
+          <td class="px-6 py-4 text-sm">${q.alias || '?'}</td>
+          <td class="px-6 py-4 text-sm max-w-xs truncate">${q.consulta}</td>
+          <td class="px-6 py-4 whitespace-nowrap">
+            <span class="px-2 py-1 rounded text-xs ${getBadgeClass(q.tipo)}">${q.tipo}</span>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // Load users table
+    async function loadUsers() {
+      const data = await fetchJSON('/users');
+      const tbody = document.getElementById('usersTable');
+
+      if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-slate-500">Sin usuarios aún</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.map(u => `
+        <tr class="table-row transition-all duration-200">
+          <td class="px-6 py-4 text-sm font-medium">${u.alias}</td>
+          <td class="px-6 py-4 text-sm font-mono text-slate-500 text-xs">${u.id.substring(0, 30)}...</td>
+          <td class="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">${formatDate(u.fecha_registro)}</td>
+          <td class="px-6 py-4">
+            <span class="px-2 py-1 rounded text-xs bg-accent/20 text-accent">${u.estado || 'activo'}</span>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // Load teams table
+    async function loadTeams() {
+      const data = await fetchJSON('/followed-teams');
+      const tbody = document.getElementById('teamsTable');
+
+      if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="px-6 py-8 text-center text-slate-500">Sin equipos seguidos aún</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.map(t => `
+        <tr class="table-row transition-all duration-200">
+          <td class="px-6 py-4 text-sm font-medium flex items-center gap-2">
+            <i data-lucide="shield" class="w-4 h-4 text-accent"></i>
+            ${t.nombre_equipo}
+          </td>
+          <td class="px-6 py-4 text-sm">${t.alias || '?'}</td>
+          <td class="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">${formatDate(t.fecha_seguimiento)}</td>
+        </tr>
+      `).join('');
+
+      lucide.createIcons();
+    }
+
+    // Tab navigation
+    document.querySelectorAll('aside a[href^="#"]').forEach(link => {
+      link.addEventListener('click', (e) => {
+        const target = e.currentTarget.getAttribute('href').substring(1);
+        document.querySelectorAll('section[id]').forEach(s => s.classList.add('hidden'));
+        const section = document.getElementById(target);
+        if (section) section.classList.remove('hidden');
+
+        // Load data for section
+        if (target === 'users') loadUsers();
+        if (target === 'teams') loadTeams();
+      });
+    });
+
+    // Initial load
+    loadStats();
+    loadTypeChart();
+    loadRecentActivity();
+    loadQueries();
+
+    // Refresh every 30 seconds
+    setInterval(() => {
+      loadStats();
+      loadTypeChart();
+      loadRecentActivity();
+    }, 30000);
+  </script>
+</body>
+</html>

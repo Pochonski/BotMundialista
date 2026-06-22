@@ -1,0 +1,44 @@
+# Environment variables (CRITICAL - contains secrets)
+.env
+.env.local
+.env.*.local
+
+# WhatsApp session files
+.wwebjs_auth/
+session/
+
+# Node modules
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build outputs
+dist/
+build/
+
+# Images from bets (personal)
+admin/public/images/*.jpg
+admin/public/images/*.png
+admin/public/images/*.jpeg
+
+# pnpm
+pnpm-lock.yaml
+package-lock.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp

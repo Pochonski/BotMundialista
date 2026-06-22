@@ -1,0 +1,159 @@
+// Handler de partidos y resultados - Mundial 2026
+const footballApi = require('../services/footballApi');
+const { LIGAS } = require('../utils/constants');
+
+/**
+ * Partidos de hoy
+ */
+async function getPartidosHoy(parsed = {}) {
+  try {
+    const matches = await footballApi.getTodayMatches();
+
+    if (!matches || matches.length === 0) {
+      return `⚽ *PARTIDOS DE HOY*\n\n` +
+        `📋 *Comandos disponibles:*\n\n` +
+        `• "Cómo quedó [equipo]" - Último resultado\n` +
+        `• "[equipo] vs [equipo]" - Enfrentamiento\n` +
+        `• "Dame info de [equipo]" - Información del equipo\n` +
+        `• "Analiza [equipo] vs [equipo]" - Análisis detallado\n` +
+        `• "Estadísticas de [equipo]" - Estadísticas\n` +
+        `• "Tabla del Mundial" - Clasificación\n` +
+        `• "Seguir [equipo]" - Agregar a favoritos\n` +
+        `• "Mis equipos" - Ver favoritos\n\n` +
+        `Ejemplo: "Cómo quedó Brasil?"`;
+    }
+
+    // Agrupar por torneo
+    const porTorneo = {};
+    matches.forEach(m => {
+      const torneo = m.tournament || 'Otro';
+      if (!porTorneo[torneo]) porTorneo[torneo] = [];
+      porTorneo[torneo].push(m);
+    });
+
+    let msg = `⚽ *PARTIDOS DE HOY*\n\n`;
+    for (const [torneo, partidos] of Object.entries(porTorneo)) {
+      msg += `🏆 ${torneo}\n`;
+      partidos.forEach(m => {
+        const score = m.homeScore !== null ? `${m.homeScore} - ${m.awayScore}` : 'vs';
+        const time = m.date ? new Date(m.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+        msg += `${m.homeTeam} ${score} ${m.awayTeam}${time ? ` | ${time}` : ''}\n`;
+      });
+      msg += '\n';
+    }
+
+    return msg.trim();
+  } catch (error) {
+    console.error('Error getPartidosHoy:', error);
+    return `⚽ *MUNDIAL 2026*\n\n` +
+      `📋 *Comandos disponibles:*\n\n` +
+      `• "Cómo quedó [equipo]" - Último resultado\n` +
+      `• "[equipo] vs [equipo]" - Enfrentamiento\n` +
+      `• "Dame info de [equipo]" - Información del equipo\n` +
+      `• "Analiza [equipo] vs [equipo]" - Análisis detallado\n` +
+      `• "Estadísticas de [equipo]" - Estadísticas\n` +
+      `• "Tabla del Mundial" - Clasificación\n` +
+      `• "Seguir [equipo]" - Agregar a favoritos\n` +
+      `• "Mis equipos" - Ver favoritos\n\n` +
+      `Ejemplo: "Cómo quedó Brasil?"`;
+  }
+}
+
+/**
+ * Partidos de una fecha específica
+ */
+async function getPartidosFecha(tipoFecha) {
+  return `📅 Usa "Cómo quedó [equipo]" para ver el último resultado`;
+}
+
+/**
+ * Último resultado de un equipo
+ */
+async function getResultadoEquipo(equipo) {
+  try {
+    let teamId = equipo.id;
+    let teamName = equipo.nombre;
+
+    if (!teamId || equipo.buscarDinamico) {
+      const team = await footballApi.buscarEquipoDinamico(teamName);
+      if (!team) {
+        return `⚠️ No encontré al equipo "${teamName}". Verifica el nombre e intenta de nuevo.`;
+      }
+      teamId = team.id;
+      teamName = team.name;
+    }
+
+    const matches = await footballApi.getTeamMatches(teamId, 5);
+
+    if (!matches || matches.length === 0) {
+      return `⚠️ No encontré partidos recientes de ${teamName}.`;
+    }
+
+    let msg = `⚽ *ÚLTIMOS PARTIDOS - ${teamName.toUpperCase()}*\n\n`;
+
+    matches.forEach(m => {
+      const score = m.homeScore !== null ? `${m.homeScore} - ${m.awayScore}` : 'vs';
+      const date = new Date(m.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+      msg += `${date} | ${m.homeTeam} ${score} ${m.awayTeam}\n`;
+    });
+
+    return msg;
+  } catch (error) {
+    console.error('Error getResultadoEquipo:', error);
+    return `⚠️ No pude obtener el resultado de ${equipo.nombre}.`;
+  }
+}
+
+/**
+ * Resultado de un enfrentamiento específico
+ */
+async function getResultadoVS(home, away) {
+  try {
+    let homeTeam, awayTeam;
+
+    if (home.buscarDinamico || !home.id) {
+      homeTeam = await footballApi.buscarEquipoDinamico(home.nombre || home);
+    } else {
+      homeTeam = { id: home.id, name: home.nombre };
+    }
+
+    if (away.buscarDinamico || !away.id) {
+      awayTeam = await footballApi.buscarEquipoDinamico(away.nombre || away);
+    } else {
+      awayTeam = { id: away.id, name: away.nombre };
+    }
+
+    if (!homeTeam) {
+      return `⚠️ No encontré al equipo "${home.nombre || home}"`;
+    }
+    if (!awayTeam) {
+      return `⚠️ No encontré al equipo "${away.nombre || away}"`;
+    }
+
+    const homeMatches = await footballApi.getTeamMatches(homeTeam.id, 15);
+
+    const h2h = homeMatches.find(m =>
+      (m.homeTeam?.toLowerCase().includes(awayTeam.name.toLowerCase()) ||
+       m.awayTeam?.toLowerCase().includes(awayTeam.name.toLowerCase()))
+    );
+
+    if (h2h) {
+      const score = h2h.homeScore !== null ? `${h2h.homeScore} - ${h2h.awayScore}` : 'vs';
+      const date = new Date(h2h.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+      return `⚽ *ENFRENTAMIENTO*\n\n${h2h.homeTeam} ${score} ${h2h.awayTeam}\n📅 ${date}\n🏆 ${h2h.tournament}`;
+    }
+
+    return `⚠️ No encontré enfrentamientos recientes entre ${homeTeam.name} y ${awayTeam.name}.\n\n` +
+      `Pueden no haberse enfrentado en este Mundial.`;
+  } catch (error) {
+    console.error('Error getResultadoVS:', error);
+    return `⚠️ No pude obtener el resultado.`;
+  }
+}
+
+module.exports = {
+  getPartidosHoy,
+  getPartidosFecha,
+  getResultadoEquipo,
+  getResultadoVS
+};

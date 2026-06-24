@@ -9,6 +9,7 @@ const statsHandler = require('./statsHandler');
 const tableHandler = require('./tableHandler');
 const bettingHandler = require('./bettingHandler');
 const betImageHandler = require('./betImageHandler');
+const geminiService = require('../services/geminiService');
 
 // Estados en memoria (para registration flow y modo demo)
 const MAX_MAP_SIZE = 1000; // Límite para prevenir memory leak
@@ -221,13 +222,40 @@ async function messageHandler(client, message) {
   }
 
   // === USER REGISTERED - PROCESS MESSAGE ===
-  const parsed = parse(text);
-  console.log(`🎯 Intent: ${parsed.intent}`);
+  // Primero intentar con Gemini para mejor comprensión de lenguaje natural
+  let parsedFromGemini = null;
+  let parsed = { intent: 'UNKNOWN' };
+
+  try {
+    const geminiResult = await geminiService.analyzeMessage(text);
+    if (geminiResult.success && geminiResult.intent !== 'UNKNOWN') {
+      console.log(`🤖 Gemini: ${geminiResult.intent} | ${geminiResult.equipo || geminiResult.home + ' vs ' + geminiResult.away}`);
+      parsedFromGemini = {
+        intent: geminiResult.intent,
+        equipo: geminiResult.equipo,
+        home: geminiResult.home,
+        away: geminiResult.away,
+        fecha: geminiResult.fecha,
+        liga: geminiResult.liga,
+        grupo: geminiResult.grupo
+      };
+    }
+  } catch (geminiError) {
+    console.error('Gemini error, usando parser local:', geminiError.message);
+  }
+
+  // Si Gemini no entendió, usar parser local
+  if (!parsedFromGemini) {
+    parsed = parse(text);
+    console.log(`🎯 Parser local: ${parsed.intent}`);
+  }
 
   let response = '';
 
   try {
-    switch (parsed.intent) {
+    const currentParsed = parsedFromGemini || parsed;
+
+    switch (currentParsed.intent) {
       case INTENTOS.SALUDO:
         response = `¡Hola ${user.alias}! 👋🏆 Bienvenido al asistente del *Mundial 2026*\n\n` +
           `📋 *Comandos:*\n` +
@@ -258,31 +286,31 @@ async function messageHandler(client, message) {
         break;
 
       case INTENTOS.PARTIDOS_HOY:
-        response = await matchHandler.getPartidosHoy(parsed);
+        response = await matchHandler.getPartidosHoy(currentParsed);
         break;
 
       case INTENTOS.PARTIDOS_FECHA:
-        response = await matchHandler.getPartidosFecha(parsed.fecha);
+        response = await matchHandler.getPartidosFecha(currentParsed.fecha);
         break;
 
       case INTENTOS.RESULTADO:
-        response = await matchHandler.getResultadoEquipo(parsed.equipo);
+        response = await matchHandler.getResultadoEquipo(currentParsed.equipo);
         break;
 
       case INTENTOS.RESULTADO_VS:
-        response = await matchHandler.getResultadoVS(parsed.home, parsed.away);
+        response = await matchHandler.getResultadoVS(currentParsed.home, currentParsed.away);
         break;
 
       case INTENTOS.INFO_EQUIPO:
-        response = await teamHandler.getInfoEquipo(parsed.equipo);
+        response = await teamHandler.getInfoEquipo(currentParsed.equipo);
         break;
 
       case INTENTOS.ESTADISTICA:
-        response = await statsHandler.getEstadisticas(parsed);
+        response = await statsHandler.getEstadisticas(currentParsed);
         break;
 
       case INTENTOS.TABLA:
-        response = await tableHandler.getTabla(parsed.liga);
+        response = await tableHandler.getTabla(currentParsed.liga);
         break;
 
       case INTENTOS.TABLA_MUNDIAL:
@@ -290,25 +318,25 @@ async function messageHandler(client, message) {
         break;
 
       case INTENTOS.TABLA_GRUPO:
-        response = await tableHandler.getTablaGrupoMundial(parsed.grupo);
+        response = await tableHandler.getTablaGrupoMundial(currentParsed.grupo);
         break;
 
       case INTENTOS.ANALISIS:
-        if (parsed.home && parsed.away) {
-          response = await bettingHandler.analizarEnfrentamiento(parsed.home, parsed.away);
-        } else if (parsed.equipo) {
-          response = await bettingHandler.analizarEquipo(parsed.equipo);
+        if (currentParsed.home && currentParsed.away) {
+          response = await bettingHandler.analizarEnfrentamiento(currentParsed.home, currentParsed.away);
+        } else if (currentParsed.equipo) {
+          response = await bettingHandler.analizarEquipo(currentParsed.equipo);
         } else {
           response = '⚠️ Indica dos equipos para analizar. Ej: "Analiza Brasil vs Argentina"';
         }
         break;
 
       case INTENTOS.SEGUIR_EQUIPO:
-        response = await teamHandler.seguirEquipo(userId, parsed.equipo);
+        response = await teamHandler.seguirEquipo(userId, currentParsed.equipo);
         break;
 
       case INTENTOS.DEJAR_SEGUIR:
-        response = await teamHandler.dejarSeguirEquipo(userId, parsed.equipo);
+        response = await teamHandler.dejarSeguirEquipo(userId, currentParsed.equipo);
         break;
 
       case INTENTOS.MIS_EQUIPOS:

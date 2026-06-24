@@ -21,10 +21,12 @@ async function initDb() {
  */
 async function getInfoEquipo(equipo) {
   try {
-    let teamId = equipo.id;
-    let teamName = equipo.nombre;
+    // Handle string equipo (from parser)
+    let teamId = typeof equipo === 'object' ? equipo.id : null;
+    let teamName = typeof equipo === 'object' ? equipo.nombre : equipo;
+    const buscarDinamico = typeof equipo === 'object' ? equipo.buscarDinamico : true;
 
-    if (!teamId || equipo.buscarDinamico) {
+    if (!teamId || buscarDinamico) {
       const team = await footballApi.buscarEquipoDinamico(teamName);
       if (!team) {
         return `⚠️ No encontré al equipo "${teamName}".`;
@@ -42,23 +44,29 @@ async function getInfoEquipo(equipo) {
     if (matches && matches.length > 0) {
       msg += `📊 *Últimos ${matches.length} partidos:*\n`;
       matches.forEach(m => {
-        const score = m.homeScore !== null ? `${m.homeScore} - ${m.awayScore}` : 'vs';
-        msg += `• ${m.homeTeam} ${score} ${m.awayTeam}\n`;
+        const homeScore = m.homeScore != null ? m.homeScore : '-';
+        const awayScore = m.awayScore != null ? m.awayScore : '-';
+        const homeName = m.homeTeam || 'Unknown';
+        const awayName = m.awayTeam || 'Unknown';
+        const score = (homeScore !== '-' || awayScore !== '-') ? `${homeScore} - ${awayScore}` : 'vs';
+        msg += `• ${homeName} ${score} ${awayName}\n`;
       });
+    } else {
+      msg += `📊 *Sin partidos recientes.*\n`;
     }
 
     // Jugadores destacados
     if (players && players.length > 0) {
       msg += `\n👤 *Jugadores destacados:*\n`;
       players.slice(0, 5).forEach(p => {
-        msg += `• ${p.name} ${p.position ? `(${p.position})` : ''}\n`;
+        msg += `• ${p.name}\n`;
       });
     }
 
     return msg;
   } catch (error) {
     console.error('Error getInfoEquipo:', error);
-    return `⚠️ No pude obtener información de ${equipo.nombre}.`;
+    return `⚠️ No pude obtener información de ${typeof equipo === 'object' ? equipo.nombre : equipo}.`;
   }
 }
 
@@ -72,10 +80,12 @@ async function seguirEquipo(userId, equipo) {
   }
 
   try {
-    let teamId = equipo.id;
-    let teamName = equipo.nombre;
+    // Handle string equipo (from parser/telegram)
+    let teamId = typeof equipo === 'object' ? equipo.id : null;
+    let teamName = typeof equipo === 'object' ? equipo.nombre : equipo;
+    const buscarDinamico = typeof equipo === 'object' ? equipo.buscarDinamico : true;
 
-    if (!teamId || equipo.buscarDinamico) {
+    if (!teamId || buscarDinamico) {
       const team = await footballApi.buscarEquipoDinamico(teamName);
       if (!team) {
         return `⚠️ No encontré al equipo "${teamName}".`;
@@ -95,7 +105,7 @@ async function seguirEquipo(userId, equipo) {
     return formatEquipoSeguido(teamName);
   } catch (error) {
     console.error('Error seguirEquipo:', error);
-    return `⚠️ No pude seguir a ${equipo.nombre}.`;
+    return `⚠️ No pude seguir a ${typeof equipo === 'object' ? equipo.nombre : equipo}.`;
   }
 }
 
@@ -109,10 +119,12 @@ async function dejarSeguirEquipo(userId, equipo) {
   }
 
   try {
-    let teamId = equipo.id;
-    let teamName = equipo.nombre;
+    // Handle string equipo (from parser/telegram)
+    let teamId = typeof equipo === 'object' ? equipo.id : null;
+    let teamName = typeof equipo === 'object' ? equipo.nombre : equipo;
+    const buscarDinamico = typeof equipo === 'object' ? equipo.buscarDinamico : true;
 
-    if (!teamId || equipo.buscarDinamico) {
+    if (!teamId || buscarDinamico) {
       const team = await footballApi.buscarEquipoDinamico(teamName);
       if (!team) {
         return `⚠️ No encontré al equipo "${teamName}".`;
@@ -129,7 +141,7 @@ async function dejarSeguirEquipo(userId, equipo) {
     return `✅ Has dejado de seguir a ${teamName}.`;
   } catch (error) {
     console.error('Error dejarSeguirEquipo:', error);
-    return `⚠️ No pude dejar de seguir a ${equipo.nombre}.`;
+    return `⚠️ No pude dejar de seguir a ${typeof equipo === 'object' ? equipo.nombre : equipo}.`;
   }
 }
 

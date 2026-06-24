@@ -117,25 +117,34 @@ function formatTabla(standings, liga) {
  * Formatea análisis para apuestas
  */
 function formatAnalisis(home, away, stats) {
-  let msg = `📈 *ANÁLISIS: ${home.name} vs ${away.name}*\n\n`;
+  const goalsHome = isNaN(home.goalsPerMatch) ? '-' : home.goalsPerMatch;
+  const goalsAway = isNaN(away.goalsPerMatch) ? '-' : away.goalsPerMatch;
+  const cornersHome = home.cornersPerMatch === 'N/A' ? 'N/A' : (isNaN(home.cornersPerMatch) ? '-' : home.cornersPerMatch);
+  const cornersAway = away.cornersPerMatch === 'N/A' ? 'N/A' : (isNaN(away.cornersPerMatch) ? '-' : away.cornersPerMatch);
 
-  msg += `🇧🇷 *${home.name}*\n`;
-  msg += `• Últimos 5: ${home.form || '-'}\n`;
-  msg += `• Goles/partido: ${home.goalsPerMatch || '-'}\n`;
-  msg += `• Corners/partido: ${home.cornersPerMatch || '-'}\n`;
-  msg += `• Local: ${home.homeRecord || '-'}\n\n`;
+  let msg = `📊 *ANÁLISIS DE APUESTAS*\n`;
+  msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+  msg += `⚽ ${home.name}  vs  ${away.name}\n`;
+  msg += `━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-  msg += `🇦🇷 *${away.name}*\n`;
-  msg += `• Últimos 5: ${away.form || '-'}\n`;
-  msg += `• Goles/partido: ${away.goalsPerMatch || '-'}\n`;
-  msg += `• Corners/partido: ${away.cornersPerMatch || '-'}\n`;
-  msg += `• Visitante: ${away.awayRecord || '-'}\n\n`;
+  msg += `🏠 *LOCAL:* ${home.name}\n`;
+  msg += `   📈 Forma: ${home.form || '-'}\n`;
+  msg += `   ⚽ Goles/match: ${goalsHome}\n`;
+  msg += `   📐 Corners/match: ${cornersHome}\n`;
+  msg += `   🏟️ Local: ${home.homeRecord || '-'}\n\n`;
+
+  msg += `✈️ *VISITANTE:* ${away.name}\n`;
+  msg += `   📈 Forma: ${away.form || '-'}\n`;
+  msg += `   ⚽ Goles/match: ${goalsAway}\n`;
+  msg += `   📐 Corners/match: ${cornersAway}\n`;
+  msg += `   🏟️ Visitante: ${away.awayRecord || '-'}\n\n`;
 
   if (stats) {
     msg += `📈 *TENDENCIAS*\n`;
-    if (stats.btts) msg += `• BTTS Sí: ${stats.btts}%\n`;
-    if (stats.over25) msg += `• Over 2.5: ${stats.over25}%\n`;
-    if (stats.cornersOver) msg += `• Corners Over 9.5: ${stats.cornersOver}%\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    if (stats.btts) msg += `🔵 BTTS Sí: ${stats.btts}%\n`;
+    if (stats.over25) msg += `⚽ Over 2.5: ${stats.over25}%\n`;
+    if (stats.cornersOver) msg += `📐 Corners +9.5: ${stats.cornersOver}%\n`;
   }
 
   return msg;

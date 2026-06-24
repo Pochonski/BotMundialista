@@ -74,10 +74,12 @@ async function analizarEnfrentamiento(home, away) {
  */
 async function analizarEquipo(equipo) {
   try {
-    let teamId = equipo.id;
-    let teamName = equipo.nombre;
+    // Handle string equipo (from parser/telegram)
+    let teamId = typeof equipo === 'object' ? equipo.id : null;
+    let teamName = typeof equipo === 'object' ? equipo.nombre : equipo;
+    const buscarDinamico = typeof equipo === 'object' ? equipo.buscarDinamico : true;
 
-    if (!teamId || equipo.buscarDinamico) {
+    if (!teamId || buscarDinamico) {
       const team = await footballApi.buscarEquipoDinamico(teamName);
       if (!team) {
         return `⚠️ No encontré al equipo "${teamName}".`;
@@ -89,18 +91,21 @@ async function analizarEquipo(equipo) {
     const matches = await footballApi.getTeamMatches(teamId, 10);
     const stats = calculateTeamStats(matches, teamName);
 
+    const goals = isNaN(stats.goalsPerMatch) ? '-' : stats.goalsPerMatch;
+    const corners = stats.cornersPerMatch === 'N/A' ? 'N/A' : (isNaN(stats.cornersPerMatch) ? '-' : stats.cornersPerMatch);
+
     let msg = `📈 *ANÁLISIS: ${teamName}*\n\n`;
     msg += `📊 *Rendimiento general*\n`;
     msg += `• Últimos ${matches.length}: ${stats.form}\n`;
-    msg += `• Goles/partido: ${stats.goalsPerMatch}\n`;
-    msg += `• Promedio corners: ${stats.cornersPerMatch}\n\n`;
+    msg += `• Goles/partido: ${goals}\n`;
+    msg += `• Promedio corners: ${corners}\n\n`;
     msg += `🏠 *Local:* ${stats.homeRecord}\n`;
     msg += `✈️ *Visitante:* ${stats.awayRecord}\n`;
 
     return msg;
   } catch (error) {
     console.error('Error analizarEquipo:', error);
-    return `⚠️ No pude analizar ${equipo.nombre}.`;
+    return `⚠️ No pude analizar ${typeof equipo === 'object' ? equipo.nombre : equipo}.`;
   }
 }
 
@@ -109,25 +114,25 @@ async function analizarEquipo(equipo) {
  */
 function calculateTeamStats(matches, teamName) {
   if (!matches || matches.length === 0) {
-    return { form: '-', goalsPerMatch: '0', cornersPerMatch: '0', record: '-', homeRecord: '-', awayRecord: '-' };
+    return { form: '-', goalsPerMatch: '0', cornersPerMatch: 'N/A', record: '-', homeRecord: '-', awayRecord: '-' };
   }
 
   let wins = 0, draws = 0, losses = 0;
   let homeWins = 0, homeDraws = 0, homeLosses = 0;
   let awayWins = 0, awayDraws = 0, awayLosses = 0;
   let goals = 0;
-  let corners = 0;
 
   matches.forEach(m => {
-    if (m.homeScore === null) return;
+    if (m.homeScore === null || m.homeScore === undefined) return;
+    if (m.awayScore === null || m.awayScore === undefined) return;
 
     const isHome = m.homeTeam?.toLowerCase().includes(teamName.toLowerCase());
     const teamGoals = isHome ? m.homeScore : m.awayScore;
     const opponentGoals = isHome ? m.awayScore : m.homeScore;
 
+    if (typeof teamGoals !== 'number' || typeof opponentGoals !== 'number') return;
+
     goals += teamGoals;
-    // corners no disponible en API básica
-    corners = null;
 
     if (teamGoals > opponentGoals) {
       wins++;
@@ -141,12 +146,23 @@ function calculateTeamStats(matches, teamName) {
     }
   });
 
-  const total = wins + draws + losses || 1;
+  const total = wins + draws + losses;
+
+  if (total === 0) {
+    return {
+      form: '-',
+      goalsPerMatch: Number.NaN,
+      cornersPerMatch: 'N/A',
+      record: '-',
+      homeRecord: '-',
+      awayRecord: '-'
+    };
+  }
 
   return {
     form: `${wins}V ${draws}E ${losses}D`,
-    goalsPerMatch: (goals / total).toFixed(1),
-    cornersPerMatch: corners !== null ? (corners / total).toFixed(1) : 'N/A',
+    goalsPerMatch: parseFloat((goals / total).toFixed(1)),
+    cornersPerMatch: 'N/A', // API básica no tiene corners
     record: `${wins}V ${draws}E ${losses}D`,
     homeRecord: `${homeWins}V ${homeDraws}E ${homeLosses}D`,
     awayRecord: `${awayWins}V ${awayDraws}E ${awayLosses}D`

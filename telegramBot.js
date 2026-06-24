@@ -200,7 +200,18 @@ async function processUpdates(updates) {
     if (text.startsWith('/')) {
       const handled = await handleCommand(chatId, text, user);
       if (handled) continue;
-      // Si no se reconoció el comando, pasar al messageHandler como texto normal
+      // Si no se reconoció el comando, pasar al messageHandler como texto normal (sin el /)
+      const textSinComando = text.replace(/^\/[a-z]+\s*/i, '');
+      if (textSinComando !== text) {
+        const msgObj = {
+          from: chatId.toString(),
+          body: textSinComando,
+          hasMedia: false,
+          reply: async (t) => await sendMessage(chatId, t)
+        };
+        await messageHandler(null, msgObj);
+        continue;
+      }
     }
 
     try {

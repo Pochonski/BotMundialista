@@ -44,16 +44,15 @@ async function getTablaMundial() {
 
       if (table.length > 0) {
         msg += `📋 *GRUPO ${grupo}*\n`;
-        msg += '```\n';
-        msg += ' Pos | Equipo           | PJ | V | E | D |  GF-GC  | Pts\n';
-        msg += '------|------------------|----|---|---|---|---------|-----\n';
 
         table.forEach(t => {
-          const nombre = t.name.padEnd(17);
-          msg += ` ${String(t.rank).padStart(2)}  | ${nombre} | ${String(t.played).padStart(2)} | ${String(t.wins).padStart(1)} | ${String(t.draws).padStart(1)} | ${String(t.losses).padStart(1)} |  ${String(t.goalsFor).padStart(2)}-${String(t.goalsAgainst).padStart(2)}  | ${String(t.points).padStart(3)}\n`;
+          const emoji = t.rank === 1 ? '🥇' : t.rank === 2 ? '🥈' : t.rank === 3 ? '🥉' : '';
+          const gd = t.goalDiff > 0 ? `+${t.goalDiff}` : t.goalDiff;
+          msg += `${emoji}*${t.rank}.* ${t.name}\n`;
+          msg += `   PJ:${t.played} V:${t.wins} E:${t.draws} D:${t.losses} GF:${t.goalsFor} GC:${t.goalsAgainst} *${t.points}pts*\n`;
         });
 
-        msg += '```\n\n';
+        msg += '\n';
       }
     }
 
@@ -81,16 +80,13 @@ async function getTablaGrupoMundial(grupo) {
     }
 
     let msg = `📋 *GRUPO ${grupo.toUpperCase()} - MUNDIAL 2026*\n\n`;
-    msg += '```\n';
-    msg += ' Pos | Equipo           | PJ | V | E | D |  GF-GC  | Pts\n';
-    msg += '------|------------------|----|---|---|---|---------|-----\n';
 
     table.forEach(t => {
-      const nombre = t.name.padEnd(17);
-      msg += ` ${String(t.rank).padStart(2)}  | ${nombre} | ${String(t.played).padStart(2)} | ${String(t.wins).padStart(1)} | ${String(t.draws).padStart(1)} | ${String(t.losses).padStart(1)} |  ${String(t.goalsFor).padStart(2)}-${String(t.goalsAgainst).padStart(2)}  | ${String(t.points).padStart(3)}\n`;
+      const emoji = t.rank === 1 ? '🥇' : t.rank === 2 ? '🥈' : t.rank === 3 ? '🥉' : '';
+      const gd = t.goalDiff > 0 ? `+${t.goalDiff}` : t.goalDiff;
+      msg += `${emoji}*${t.rank}.* ${t.name}\n`;
+      msg += `   PJ:${t.played} V:${t.wins} E:${t.draws} D:${t.losses} GF:${t.goalsFor}-${t.goalsAgainst}(${gd}) *${t.points}pts*\n`;
     });
-
-    msg += '```\n';
 
     return msg;
   } catch (error) {

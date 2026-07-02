@@ -42,3 +42,7 @@ package-lock.json
 tmp/
 temp/
 *.tmp
+
+# Cosmos DB bootstrap state (caches what's already ingested)
+database/.scores365-state.json
+database/.scores365-state.json.tmp

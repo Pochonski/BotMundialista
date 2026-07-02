@@ -1,6 +1,7 @@
 // Handler de información de equipos - Mundial 2026
 const footballApi = require('../services/footballApi');
-const { formatEquipoSeguido, formatMisEquipos } = require('../utils/formatters');
+const { formatEquipoSeguido, formatMisEquipos, formatMatchLine } = require('../utils/formatters');
+const { getFlag, getConfederation, getRecentForm } = require('../utils/teamContext');
 const { pool, testConnection } = require('../database/connection');
 
 // Flag de disponibilidad de DB (compartido con messageHandler)
@@ -17,11 +18,11 @@ async function initDb() {
 }
 
 /**
- * Info de un equipo
+ * Info de un equipo — respuesta rica con confederación, forma, partidos y jugadores
  */
 async function getInfoEquipo(equipo) {
   try {
-    // Handle string equipo (from parser)
+    // Handle string u objeto
     let teamId = typeof equipo === 'object' ? equipo.id : null;
     let teamName = typeof equipo === 'object' ? equipo.nombre : equipo;
     const buscarDinamico = typeof equipo === 'object' ? equipo.buscarDinamico : true;
@@ -35,38 +36,62 @@ async function getInfoEquipo(equipo) {
       teamName = team.name;
     }
 
-    const matches = await footballApi.getTeamMatches(teamId, 5);
-    const players = await footballApi.getTeamPlayers(teamId);
+    // Buscar en paralelo
+    const [rawMatches, players] = await Promise.all([
+      footballApi.getTeamMatches(teamId, 20),
+      footballApi.getTeamPlayers(teamId),
+    ]);
 
-    let msg = `👥 *${teamName}*\n\n`;
+    const flag = getFlag(teamName);
+    const conf = getConfederation(teamName);
+    const confText = conf ? ` · Confederación: *${conf}*` : '';
+    const teamType = teamName.length > 20 ? '' : 'Selección'; // heurística simple
 
-    // Últimos partidos
-    if (matches && matches.length > 0) {
-      msg += `📊 *Últimos ${matches.length} partidos:*\n`;
-      matches.forEach(m => {
-        const homeScore = m.homeScore != null ? m.homeScore : '-';
-        const awayScore = m.awayScore != null ? m.awayScore : '-';
-        const homeName = m.homeTeam || 'Unknown';
-        const awayName = m.awayTeam || 'Unknown';
-        const score = (homeScore !== '-' || awayScore !== '-') ? `${homeScore} - ${awayScore}` : 'vs';
-        msg += `• ${homeName} ${score} ${awayName}\n`;
-      });
+    let msg = `${flag} *${teamName.toUpperCase()}*\n`;
+    msg += `${teamType ? teamType : 'Equipo'}${confText}\n\n`;
+
+    // Forma reciente (W-D-L) sobre los últimos 5 partidos JUGADOS
+    const form = getRecentForm(rawMatches, teamId, 5);
+    if (form.played > 0) {
+      const pct = Math.round((form.wins * 100) / form.played);
+      msg += `📈 *Forma reciente (últimos ${form.played}):*\n`;
+      msg += `${form.line}  —  ${form.wins}G ${form.draws}E ${form.losses}D (${pct}% victorias)\n\n`;
     } else {
-      msg += `📊 *Sin partidos recientes.*\n`;
+      msg += `📈 *Forma reciente:* sin datos\n\n`;
     }
 
-    // Jugadores destacados
+    // Últimos partidos JUGADOS (filtrados, ordenados DESC, formato enriquecido)
+    const played = (rawMatches || [])
+      .filter(m => m.homeScore != null && m.awayScore != null)
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    if (played.length > 0) {
+      msg += `📅 *Últimos partidos:*\n`;
+      const top = played.slice(0, 3);
+      top.forEach(m => {
+        msg += formatMatchLine(m, teamId).line + '\n';
+      });
+    } else {
+      msg += `📅 *Últimos partidos:* sin datos\n`;
+    }
+
+    // Jugadores destacados (top 8, sin posición porque la API no la devuelve fiable)
     if (players && players.length > 0) {
       msg += `\n👤 *Jugadores destacados:*\n`;
-      players.slice(0, 5).forEach(p => {
+      players.slice(0, 8).forEach(p => {
         msg += `• ${p.name}\n`;
       });
     }
 
+    // Logo URL (Telegram lo muestra como preview si el mensaje es el primero)
+    const logoUrl = `https://images.fotmob.com/teamlogos/${teamId}.png`;
+    msg += `\n🔗 _Logo:_ ${logoUrl}`;
+
     return msg;
   } catch (error) {
     console.error('Error getInfoEquipo:', error);
-    return `⚠️ No pude obtener información de ${typeof equipo === 'object' ? equipo.nombre : equipo}.`;
+    const name = typeof equipo === 'object' ? equipo.nombre : equipo;
+    return `⚠️ No pude obtener información de ${name}.`;
   }
 }
 

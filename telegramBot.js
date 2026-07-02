@@ -4,6 +4,7 @@ const http = require('http');
 const fetch = require('node-fetch');
 const messageHandler = require('./handlers/messageHandler');
 const { pool, testConnection } = require('./database/connection');
+const userStorage = require('./utils/userStorage');
 
 // Token del bot de Telegram
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -68,9 +69,10 @@ async function sendMessage(chatId, text, options = {}) {
 /**
  * Maneja comandos de Telegram (que empiezan con /)
  */
-async function handleCommand(chatId, command, userName) {
+async function handleCommand(chatId, command, userName, userId) {
   const cmd = command.toLowerCase();
-  const alias = userName || 'Usuario';
+  const storedAlias = userStorage.getAlias(userId);
+  const alias = storedAlias || userName || 'Usuario';
 
   switch (cmd) {
     case '/start':
@@ -81,6 +83,8 @@ async function handleCommand(chatId, command, userName) {
         `📱 *Comandos disponibles:*\n` +
         `  /start - Iniciar\n` +
         `  /help - Ver comandos\n` +
+        `  /cambiarnombre [nombre] - Tu apodo personalizado\n` +
+        `  /mialias - Ver tu apodo actual\n` +
         `  /partidos - Partidos de hoy\n` +
         `  /tabla - Tabla del Mundial\n` +
         `  /resultado [equipo] - Resultado de un equipo\n` +
@@ -93,6 +97,9 @@ async function handleCommand(chatId, command, userName) {
     case '/ayuda':
       await sendMessage(chatId,
         `📖 *COMANDOS - MUNDIAL 2026*\n\n` +
+        `👤 *Personalización:*\n` +
+        `  /cambiarnombre [nombre] - Tu apodo\n` +
+        `  /mialias - Ver tu apodo actual\n\n` +
         `⚽ *Resultados:*\n` +
         `  /resultado Brasil\n` +
         `  "Brasil vs Argentina"\n\n` +
@@ -107,6 +114,52 @@ async function handleCommand(chatId, command, userName) {
         `  /tabla - Tabla general\n` +
         `  /grupo A - Tabla grupo A`
       );
+      return true;
+
+    case '/cambiarnombre':
+    case '/cambiarnombre@botmundialistabot':
+      const argNombre = command.replace(/^\/cambiarnombre(@\w+)?/i, '').trim();
+      if (!argNombre) {
+        await sendMessage(chatId,
+          `✏️ *Cambiar nombre*\n\n` +
+          `Uso: \`/cambiarnombre TuNombre\`\n\n` +
+          `Tu apodo actual: *${alias}*\n` +
+          `Máximo ${userStorage.MAX_LEN} caracteres.`
+        );
+        return true;
+      }
+      const r = await userStorage.setAlias(userId, argNombre);
+      if (!r.ok) {
+        await sendMessage(chatId, `⚠️ No pude cambiar tu nombre: ${r.reason}`);
+      } else {
+        const syncMsg = r.synced
+          ? '✅ Guardado en Supabase'
+          : '💾 Guardado localmente (Supabase no disponible)';
+        await sendMessage(chatId,
+          `✅ *Listo*\n\n` +
+          `Tu nuevo apodo es: *${r.alias}*\n` +
+          `${syncMsg}\n\n` +
+          `A partir de ahora te saludaré como "${r.alias}".`
+        );
+      }
+      return true;
+
+    case '/mialias':
+      const currentAlias = userStorage.getAlias(userId);
+      if (currentAlias) {
+        await sendMessage(chatId,
+          `👤 *Tu apodo actual*\n\n` +
+          `Apodo: *${currentAlias}*\n` +
+          `ID de Telegram: \`${userId}\`\n\n` +
+          `Para cambiarlo: \`/cambiarnombre NuevoNombre\``
+        );
+      } else {
+        await sendMessage(chatId,
+          `👤 Aún no tienes apodo personalizado.\n\n` +
+          `Tu nombre actual es: *${userName || 'Usuario'}* (de Telegram)\n\n` +
+          `Para crear uno: \`/cambiarnombre TuNombre\``
+        );
+      }
       return true;
 
     case '/partidos':
@@ -216,14 +269,15 @@ async function processUpdates(updates) {
     if (message.chat.type !== 'private') continue;
 
     const chatId = message.chat.id;
+    const userId = message.from.id;
     const text = message.text.trim();
     const user = message.from.username || message.from.first_name;
 
-    console.log(`📩 Telegram: [${user}] ${text}`);
+    console.log(`📩 Telegram: [${user}] (${userId}) ${text}`);
 
     // Si es un comando, intentar manejarlo
     if (text.startsWith('/')) {
-      const handled = await handleCommand(chatId, text, user);
+      const handled = await handleCommand(chatId, text, user, String(userId));
       if (handled) continue;
       // Si no se reconoció el comando, pasar al messageHandler como texto normal (sin el /)
       const textSinComando = text.replace(/^\/[a-z]+\s*/i, '');

@@ -131,6 +131,87 @@ function formatTabla(standings, liga) {
 }
 
 /**
+ * Formatea una tabla de grupo (Mundial 2026) en un bloque de código pre-formateado
+ * con columnas alineadas para mejor legibilidad en Telegram.
+ *
+ * Estructura de columnas: [#][EQUIPO][PTS][PJ][V-E-D][GOLES][DG]
+ *
+ * @param {Array} rows - Lista de equipos con { rank, name, played, wins, draws, losses, goalsFor, goalsAgainst, goalDiff, points }
+ * @param {string} grupo - Letra del grupo (A-L), opcional
+ * @returns {string} Mensaje formateado con bloque de código
+ */
+function formatGroupTable(rows, grupo) {
+  if (!rows || rows.length === 0) {
+    return `📋 No hay datos${grupo ? ` para el grupo ${grupo}` : ''}.`;
+  }
+
+  // Truncar nombres largos para mantener alineación
+  const NAME_MAX = 22;
+  const normalized = rows.map(r => ({
+    rank: r.rank,
+    name: (r.name || '?').substring(0, NAME_MAX),
+    played: r.played || 0,
+    wins: r.wins || 0,
+    draws: r.draws || 0,
+    losses: r.losses || 0,
+    goalsFor: r.goalsFor || 0,
+    goalsAgainst: r.goalsAgainst || 0,
+    goalDiff: r.goalDiff != null ? r.goalDiff : ((r.goalsFor || 0) - (r.goalsAgainst || 0)),
+    points: r.points || 0,
+  }));
+
+  // Anchos máximos dinámicos para cada columna
+  const wRank = Math.max(1, ...normalized.map(r => String(r.rank).length));
+  const wName = Math.max(2, ...normalized.map(r => r.name.length));
+  const wPts = Math.max(3, ...normalized.map(r => String(r.points).length));
+  const wPj  = Math.max(2, ...normalized.map(r => String(r.played).length));
+  const wGf  = Math.max(2, ...normalized.map(r => String(r.goalsFor).length));
+  const wGa  = Math.max(2, ...normalized.map(r => String(r.goalsAgainst).length));
+
+  const padR = (s, w) => String(s).padEnd(w, ' ');
+  const padL = (s, w) => String(s).padStart(w, ' ');
+
+  // Helper para formato de diferencia de goles: +4, -1, 0
+  const fmtGD = (gd) => gd > 0 ? `+${gd}` : `${gd}`;
+
+  // Helper para W-D-L
+  const fmtWDL = (w, d, l) => `${w}-${d}-${l}`;
+
+  const header = [
+    padR('#', wRank),
+    padR('EQUIPO', wName),
+    padL('PTS', wPts),
+    padL('PJ', wPj),
+    padR('V-E-D', 5),
+    padR('GOLES', 7),
+    padL('DG', 4)
+  ].join('  ');
+
+  const lines = normalized.map((r, i) => {
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '  ';
+    const wdl = fmtWDL(r.wins, r.draws, r.losses);
+    const goles = `${r.goalsFor}-${r.goalsAgainst}`;
+    return [
+      padR(String(r.rank), wRank),
+      padR(r.name, wName),
+      padL(String(r.points), wPts),
+      padL(String(r.played), wPj),
+      padR(wdl, 5),
+      padR(goles, 7),
+      padL(fmtGD(r.goalDiff), 4)
+    ].join('  ');
+  }).map((l, i) => `${i === 0 ? medal : '  '}${l}`);
+
+  let msg = '';
+  if (grupo) msg += `📋 *GRUPO ${grupo.toUpperCase()} — MUNDIAL 2026*\n\n`;
+  msg += '```\n';
+  msg += header + '\n';
+  lines.forEach(l => { msg += l + '\n'; });
+  msg += '```';
+  return msg;
+}
+
+/**
  * Formatea análisis para apuestas
  */
 function formatAnalisis(home, away, stats) {

@@ -1,6 +1,6 @@
 // Handler de tablas de posiciones
 const footballApi = require('../services/footballApi');
-const { formatTabla } = require('../utils/formatters');
+const { formatTabla, formatGroupTable } = require('../utils/formatters');
 const { LIGAS } = require('../utils/constants');
 
 /**
@@ -105,17 +105,8 @@ async function getTablaMundial() {
 
       const table = await footballApi.getWorldCupGroupTable(leagueId);
 
-      if (table.length > 0) {
-        msg += `📋 *GRUPO ${grupo}*\n`;
-
-        table.forEach(t => {
-          const emoji = t.rank === 1 ? '🥇' : t.rank === 2 ? '🥈' : t.rank === 3 ? '🥉' : '';
-          const gd = t.goalDiff > 0 ? `+${t.goalDiff}` : t.goalDiff;
-          msg += `${emoji}*${t.rank}.* ${t.name}\n`;
-          msg += `   PJ:${t.played} V:${t.wins} E:${t.draws} D:${t.losses} GF:${t.goalsFor} GC:${t.goalsAgainst} *${t.points}pts*\n`;
-        });
-
-        msg += '\n';
+      if (table && table.length > 0) {
+        msg += formatGroupTable(table, grupo) + '\n\n';
       }
     }
 
@@ -131,7 +122,8 @@ async function getTablaMundial() {
  */
 async function getTablaGrupoMundial(grupo) {
   try {
-    const leagueId = footballApi.MUNDIAL_GRUPOS[grupo.toUpperCase()];
+    const grupoUpper = grupo.toUpperCase();
+    const leagueId = footballApi.MUNDIAL_GRUPOS[grupoUpper];
     if (!leagueId) {
       return `⚠️ Grupo ${grupo} no encontrado.`;
     }
@@ -142,16 +134,7 @@ async function getTablaGrupoMundial(grupo) {
       return `⚠️ No hay datos para el Grupo ${grupo}.`;
     }
 
-    let msg = `📋 *GRUPO ${grupo.toUpperCase()} - MUNDIAL 2026*\n\n`;
-
-    table.forEach(t => {
-      const emoji = t.rank === 1 ? '🥇' : t.rank === 2 ? '🥈' : t.rank === 3 ? '🥉' : '';
-      const gd = t.goalDiff > 0 ? `+${t.goalDiff}` : t.goalDiff;
-      msg += `${emoji}*${t.rank}.* ${t.name}\n`;
-      msg += `   PJ:${t.played} V:${t.wins} E:${t.draws} D:${t.losses} GF:${t.goalsFor}-${t.goalsAgainst}(${gd}) *${t.points}pts*\n`;
-    });
-
-    return msg;
+    return formatGroupTable(table, grupoUpper);
   } catch (error) {
     console.error('Error getTablaGrupoMundial:', error);
     return `⚠️ No pude obtener la tabla del Grupo ${grupo}.`;

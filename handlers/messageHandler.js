@@ -260,6 +260,25 @@ async function messageHandler(client, message) {
   try {
     const currentParsed = parsedFromGemini || parsed;
 
+    // Interceptar UNKNOWN para mensajes especiales (ej: apuestas, fuera de alcance)
+    if (currentParsed.intent === INTENTOS.DESCONOCIDO || !currentParsed.intent) {
+      const lowerText = (text || '').toLowerCase().trim();
+      if (/apostar|apuesta|bet|apuesta de|cuota/.test(lowerText)) {
+        response = `🎰 *Apuestas*\n\n` +
+          `Este bot no tiene integración con casas de apuestas todavía.\n\n` +
+          `Lo que SÍ puedo hacer ahora:\n` +
+          `📊 *Analizar partidos* — Pídeme "/analizar Brasil vs Francia" y te doy estadísticas, forma y pronóstico.\n` +
+          `📈 *Estadísticas* — "Estadísticas de Brasil" o "Cuántos córners hizo Argentina"\n` +
+          `📋 *Enfrentamientos* — "Argentina vs Francia" para ver el historial\n\n` +
+          `💡 _Si querés registrar tu apuesta en otro sistema (bet tracker), avisame y lo implemento._`;
+      } else if (lowerText.length === 0 || lowerText === 'hola' || lowerText === 'hi') {
+        // Dejar al saludo manejarlo
+      } else {
+        response = `🤔 No entendí "${text}".\n\nEscribe *ayuda* para ver los comandos disponibles.`;
+      }
+    }
+
+    if (!response) {
     switch (currentParsed.intent) {
       case INTENTOS.SALUDO:
         response = `¡Hola ${user.alias}! 👋🏆 Bienvenido al asistente del *Mundial 2026*\n\n` +
@@ -350,6 +369,7 @@ async function messageHandler(client, message) {
 
       default:
         response = `🤔 No entendí "${text}".\n\nEscribe *ayuda* para ver los comandos disponibles.`;
+    }
     }
   } catch (error) {
     console.error('Error handling message:', error);

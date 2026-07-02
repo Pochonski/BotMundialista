@@ -81,15 +81,20 @@ async function handleCommand(chatId, command, userName, userId) {
         `🏆 *BotMundialista* - Asistente del Mundial 2026\n\n` +
         `¡Hola ${alias}! 👋 Soy tu asistente de fútbol.\n\n` +
         `📱 *Comandos disponibles:*\n` +
-        `  /start - Iniciar\n` +
-        `  /help - Ver comandos\n` +
-        `  /cambiarnombre [nombre] - Tu apodo personalizado\n` +
-        `  /mialias - Ver tu apodo actual\n` +
+        `  /start - Iniciar el bot\n` +
+        `  /help - Ver comandos disponibles\n` +
         `  /partidos - Partidos de hoy\n` +
         `  /tabla - Tabla del Mundial\n` +
-        `  /resultado [equipo] - Resultado de un equipo\n` +
-        `  /analizar [eq1] vs [eq2] - Análisis de partido\n\n` +
-        `O escribe normalmente: "¿Cómo quedó Brasil?"`
+        `  /resultado [equipo] - Resultado de un equipo _(ej: /resultado brasil)_\n` +
+        `  /analizar [eq1] vs [eq2] - Analizar partido _(ej: /analizar brasil vs argentina)_\n` +
+        `  /info [equipo] - Información de equipo\n` +
+        `  /seguir [equipo] - Seguir a un equipo\n` +
+        `  /grupo [A-L] - Tabla de grupo _(ej: /grupo A)_\n` +
+        `  /cambiarusuario [nombre] - Cambiar tu nombre\n\n` +
+        `💡 También podés escribir en lenguaje natural:\n` +
+        `  "¿Cómo quedó Brasil?"\n` +
+        `  "Tabla del grupo C"\n` +
+        `  "Dame info de Alemania"`
       );
       return true;
 
@@ -97,34 +102,33 @@ async function handleCommand(chatId, command, userName, userId) {
     case '/ayuda':
       await sendMessage(chatId,
         `📖 *COMANDOS - MUNDIAL 2026*\n\n` +
-        `👤 *Personalización:*\n` +
-        `  /cambiarnombre [nombre] - Tu apodo\n` +
-        `  /mialias - Ver tu apodo actual\n\n` +
-        `⚽ *Resultados:*\n` +
-        `  /resultado Brasil\n` +
-        `  "Brasil vs Argentina"\n\n` +
-        `📊 *Análisis:*\n` +
-        `  /analizar Brasil vs Francia\n` +
-        `  /stats España\n\n` +
-        `👥 *Equipos:*\n` +
-        `  /info Alemania\n` +
-        `  /seguir Brasil\n` +
-        `  /miequipos\n\n` +
+        `⚽ *Partidos:*\n` +
+        `  /partidos - Partidos de hoy\n` +
+        `  /resultado [equipo] - Último resultado _(ej: /resultado brasil)_\n` +
+        `  /analizar [eq1] vs [eq2] - Análisis _(ej: /analizar brasil vs argentina)_\n\n` +
         `🏆 *Tablas:*\n` +
-        `  /tabla - Tabla general\n` +
-        `  /grupo A - Tabla grupo A`
+        `  /tabla - Tabla del Mundial\n` +
+        `  /grupo [A-L] - Grupo específico _(ej: /grupo A)_\n\n` +
+        `👥 *Equipos:*\n` +
+        `  /info [equipo] - Info del equipo\n` +
+        `  /seguir [equipo] - Seguir equipo\n` +
+        `  /cambiarusuario [nombre] - Cambiar tu apodo\n\n` +
+        `💡 _También entendés: "Cómo le fue a X", "Brasil vs Francia", "Estadísticas de X", "Tabla de la Premier"…_`
       );
       return true;
 
     case '/cambiarnombre':
     case '/cambiarnombre@botmundialistabot':
-      const argNombre = command.replace(/^\/cambiarnombre(@\w+)?/i, '').trim();
+    case '/cambiarusuario':
+    case '/cambiarusuario@botmundialistabot':
+      const argNombre = command.replace(/^\/(cambiarnombre|cambiarusuario)(@\w+)?/i, '').trim();
       if (!argNombre) {
         await sendMessage(chatId,
           `✏️ *Cambiar nombre*\n\n` +
-          `Uso: \`/cambiarnombre TuNombre\`\n\n` +
+          `Uso: \`/cambiarusuario TuNombre\`\n\n` +
           `Tu apodo actual: *${alias}*\n` +
-          `Máximo ${userStorage.MAX_LEN} caracteres.`
+          `Máximo ${userStorage.MAX_LEN} caracteres.\n\n` +
+          `Otros comandos: /mialias (ver) · /help (ayuda)`
         );
         return true;
       }
@@ -196,6 +200,18 @@ async function handleCommand(chatId, command, userName, userId) {
           reply: async (t) => await sendMessage(chatId, t)
         };
         await messageHandler(null, msgRes);
+        return true;
+      }
+
+      if (cmd === '/analizar' || cmd === '/analizar@botmundialistabot') {
+        await sendMessage(chatId,
+          `📊 *Analizar partido*\n\n` +
+          `Uso: \`/analizar [equipo1] vs [equipo2]\`\n\n` +
+          `Ejemplos:\n` +
+          `• /analizar Brasil vs Francia\n` +
+          `• /analizar Argentina vs Alemania\n\n` +
+          `Genero estadísticas, forma reciente y pronóstico.`
+        );
         return true;
       }
 

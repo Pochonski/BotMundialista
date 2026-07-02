@@ -4,60 +4,77 @@ const { LIGAS } = require('../utils/constants');
 const { formatMatchLine, detectElimination } = require('../utils/formatters');
 
 /**
- * Partidos de hoy
+ * Partidos de hoy — filtra a partidos del Mundial 2026 por defecto
+ * (Este es un bot del Mundial, no un agregador de ligas menores)
  */
 async function getPartidosHoy(parsed = {}) {
   try {
     const matches = await footballApi.getTodayMatches();
 
     if (!matches || matches.length === 0) {
-      return `⚽ *PARTIDOS DE HOY*\n\n` +
-        `📋 *Comandos disponibles:*\n\n` +
-        `• "Cómo quedó [equipo]" - Último resultado\n` +
-        `• "[equipo] vs [equipo]" - Enfrentamiento\n` +
-        `• "Dame info de [equipo]" - Información del equipo\n` +
-        `• "Analiza [equipo] vs [equipo]" - Análisis detallado\n` +
-        `• "Estadísticas de [equipo]" - Estadísticas\n` +
-        `• "Tabla del Mundial" - Clasificación\n` +
-        `• "Seguir [equipo]" - Agregar a favoritos\n` +
-        `• "Mis equipos" - Ver favoritos\n\n` +
-        `Ejemplo: "Cómo quedó Brasil?"`;
+      return buildNoMatchesMessage();
     }
 
-    // Agrupar por torneo
-    const porTorneo = {};
-    matches.forEach(m => {
-      const torneo = m.tournament || 'Otro';
-      if (!porTorneo[torneo]) porTorneo[torneo] = [];
-      porTorneo[torneo].push(m);
+    // IDs de ligas del Mundial 2026 (los 12 grupos + playoff)
+    const mundialLeagueIds = new Set(Object.values(footballApi.MUNDIAL_GRUPOS || {}));
+    const mundialMatches = matches.filter(m => mundialLeagueIds.has(Number(m.leagueId)));
+
+    if (mundialMatches.length === 0) {
+      return `⚽ *MUNDIAL 2026 — PARTIDOS DE HOY*\n\n` +
+        `🟢 No hay partidos del Mundial programados para hoy.\n\n` +
+        `📋 *Otros comandos útiles:*\n` +
+        `• "Tabla del grupo A" — Ver clasificación\n` +
+        `• "Cómo quedó [equipo]" — Último resultado\n` +
+        `• "Próximos partidos del Mundial" — Lo que viene`;
+    }
+
+    // Agrupar Mundial por grupo (A, B, C...)
+    const porGrupo = {};
+    mundialMatches.forEach(m => {
+      const grupoLetra = Object.entries(footballApi.MUNDIAL_GRUPOS || {})
+        .find(([_, id]) => Number(id) === Number(m.leagueId))?.[0] || '?';
+      if (!porGrupo[grupoLetra]) porGrupo[grupoLetra] = [];
+      porGrupo[grupoLetra].push(m);
     });
 
-    let msg = `⚽ *PARTIDOS DE HOY*\n\n`;
-    for (const [torneo, partidos] of Object.entries(porTorneo)) {
-      msg += `🏆 ${torneo}\n`;
+    const grupos = Object.keys(porGrupo).sort();
+
+    let msg = `⚽ *MUNDIAL 2026 — PARTIDOS DE HOY*\n\n`;
+    msg += `📅 *${new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}*\n\n`;
+
+    for (const grupo of grupos) {
+      const partidos = porGrupo[grupo];
+      msg += `📋 *GRUPO ${grupo}*  (${partidos.length} partido${partidos.length === 1 ? '' : 's'})\n`;
       partidos.forEach(m => {
-        const score = m.homeScore !== null ? `${m.homeScore} - ${m.awayScore}` : 'vs';
-        const time = m.date ? new Date(m.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
-        msg += `${m.homeTeam} ${score} ${m.awayTeam}${time ? ` | ${time}` : ''}\n`;
+        const scoreText = (m.homeScore !== null && m.homeScore !== undefined)
+          ? `${m.homeScore} - ${m.awayScore}`
+          : (m.time || 'vs');
+        msg += `⚽ ${m.homeTeam} ${scoreText} ${m.awayTeam}`;
+        if (m.time && m.homeScore === null) {
+          msg += `  _(${m.time})_`;
+        }
+        msg += '\n';
       });
       msg += '\n';
     }
 
+    msg += `💡 _Tip: "Tabla del grupo X" para ver la clasificación._`;
     return msg.trim();
   } catch (error) {
     console.error('Error getPartidosHoy:', error);
-    return `⚽ *MUNDIAL 2026*\n\n` +
-      `📋 *Comandos disponibles:*\n\n` +
-      `• "Cómo quedó [equipo]" - Último resultado\n` +
-      `• "[equipo] vs [equipo]" - Enfrentamiento\n` +
-      `• "Dame info de [equipo]" - Información del equipo\n` +
-      `• "Analiza [equipo] vs [equipo]" - Análisis detallado\n` +
-      `• "Estadísticas de [equipo]" - Estadísticas\n` +
-      `• "Tabla del Mundial" - Clasificación\n` +
-      `• "Seguir [equipo]" - Agregar a favoritos\n` +
-      `• "Mis equipos" - Ver favoritos\n\n` +
-      `Ejemplo: "Cómo quedó Brasil?"`;
+    return buildNoMatchesMessage();
   }
+}
+
+function buildNoMatchesMessage() {
+  return `⚽ *MUNDIAL 2026 — PARTIDOS DE HOY*\n\n` +
+    `🟢 No hay partidos del Mundial programados para hoy.\n\n` +
+    `📋 *Comandos útiles:*\n` +
+    `• "Tabla del Mundial" — Clasificación de todos los grupos\n` +
+    `• "Tabla del grupo A/B/C…" — Grupo específico\n` +
+    `• "Cómo quedó [equipo]" — Último resultado\n` +
+    `• "Próximos partidos del Mundial" — Lo que viene\n\n` +
+    `📖 Escribe /help para ver todos los comandos.`;
 }
 
 /**

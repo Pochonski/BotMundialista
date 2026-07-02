@@ -213,7 +213,7 @@ function formatMatchLine(match, teamId) {
   const date = new Date(match.date).toLocaleDateString('es-ES', {
     day: 'numeric', month: 'short', year: 'numeric'
   });
-  const tournament = match.tournament || 'Sin torneo';
+  const tournament = match.tournament || match.leagueName || 'Competición';
   const penalties = /pen/i.test(match.status || '') ? ' (p.)' : '';
 
   return {

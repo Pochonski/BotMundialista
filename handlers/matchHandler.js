@@ -127,10 +127,19 @@ async function getResultadoEquipo(equipo) {
       teamName = team.name;
     }
 
-    const matches = await footballApi.getTeamMatches(teamId, 5);
+    const rawMatches = await footballApi.getTeamMatches(teamId, 20);
 
-    if (!matches || matches.length === 0) {
+    if (!rawMatches || rawMatches.length === 0) {
       return `⚠️ No encontré partidos recientes de ${teamName}.`;
+    }
+
+    // Filtrar a partidos YA JUGADOS (con marcador real) y ordenar por fecha DESC
+    const matches = rawMatches
+      .filter(m => m.homeScore != null && m.awayScore != null)
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    if (matches.length === 0) {
+      return `⚠️ No encontré partidos jugados recientemente de ${teamName}.`;
     }
 
     let msg = `⚽ *ÚLTIMOS PARTIDOS - ${teamName.toUpperCase()}*\n\n`;
@@ -140,7 +149,7 @@ async function getResultadoEquipo(equipo) {
       msg += formatMatchLine(m, teamId).line + '\n';
     });
 
-    // Footer con estado del equipo
+    // Footer con estado del equipo (basado en partidos JUGADOS)
     const elimination = detectElimination(matches, teamId);
     if (elimination) {
       const penMsg = elimination.onPenalties ? ' (perdió por penales)' : '';
@@ -151,7 +160,6 @@ async function getResultadoEquipo(equipo) {
       const oppName = last.homeTeamId == teamId ? last.awayTeam : last.homeTeam;
       const status = lastFmt.teamWon ? `✅ Ganó a ${oppName}`
                     : lastFmt.teamLost ? `❌ Perdió vs ${oppName}`
-                    : lastFmt.marker === '🕐' ? `🕐 Partido pendiente vs ${oppName}`
                     : `🟰 Empató vs ${oppName}`;
       msg += `\n📊 *Estado:* Sigue en competencia (último: ${status})`;
     }

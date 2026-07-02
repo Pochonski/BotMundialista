@@ -39,10 +39,20 @@ async function getEstadisticas(parsed) {
   }
 
   try {
-    let teamId = equipo.id;
-    let teamName = equipo.nombre;
+    let teamId;
+    let teamName;
+    if (typeof equipo === 'string') {
+      teamName = equipo;
+    } else if (equipo && typeof equipo === 'object') {
+      teamId = equipo.id;
+      teamName = equipo.nombre;
+    }
 
-    if (!teamId || equipo.buscarDinamico) {
+    if (!teamName || teamName.trim() === '') {
+      return '⚠️ Indica el equipo. Ej: "Estadísticas de Brasil"';
+    }
+
+    if (!teamId || (equipo && equipo.buscarDinamico)) {
       const team = await footballApi.buscarEquipoDinamico(teamName);
       if (!team) {
         return `⚠️ No encontré al equipo "${teamName}".`;

@@ -68,13 +68,24 @@ async function getPartidosFecha(tipoFecha) {
 
 /**
  * Último resultado de un equipo
+ * Acepta: string con el nombre del equipo, u objeto {id, nombre, buscarDinamico}
  */
 async function getResultadoEquipo(equipo) {
   try {
-    let teamId = equipo.id;
-    let teamName = equipo.nombre;
+    let teamId;
+    let teamName;
+    if (typeof equipo === 'string') {
+      teamName = equipo;
+    } else if (equipo && typeof equipo === 'object') {
+      teamId = equipo.id;
+      teamName = equipo.nombre;
+    }
 
-    if (!teamId || equipo.buscarDinamico) {
+    if (!teamName || teamName.trim() === '') {
+      return '⚠️ No especificaste el equipo. Ejemplo: "¿Cómo quedó Brasil?"';
+    }
+
+    if (!teamId || (equipo && equipo.buscarDinamico)) {
       const team = await footballApi.buscarEquipoDinamico(teamName);
       if (!team) {
         return `⚠️ No encontré al equipo "${teamName}". Verifica el nombre e intenta de nuevo.`;
@@ -100,7 +111,7 @@ async function getResultadoEquipo(equipo) {
     return msg;
   } catch (error) {
     console.error('Error getResultadoEquipo:', error);
-    return `⚠️ No pude obtener el resultado de ${equipo.nombre}.`;
+    return `⚠️ No pude obtener el resultado.`;
   }
 }
 
@@ -111,23 +122,25 @@ async function getResultadoVS(home, away) {
   try {
     let homeTeam, awayTeam;
 
-    if (home.buscarDinamico || !home.id) {
-      homeTeam = await footballApi.buscarEquipoDinamico(home.nombre || home);
+    if (typeof home === 'string' || (home && !home.id)) {
+      const homeName = typeof home === 'string' ? home : home.nombre;
+      homeTeam = await footballApi.buscarEquipoDinamico(homeName);
     } else {
       homeTeam = { id: home.id, name: home.nombre };
     }
 
-    if (away.buscarDinamico || !away.id) {
-      awayTeam = await footballApi.buscarEquipoDinamico(away.nombre || away);
+    if (typeof away === 'string' || (away && !away.id)) {
+      const awayName = typeof away === 'string' ? away : away.nombre;
+      awayTeam = await footballApi.buscarEquipoDinamico(awayName);
     } else {
       awayTeam = { id: away.id, name: away.nombre };
     }
 
     if (!homeTeam) {
-      return `⚠️ No encontré al equipo "${home.nombre || home}"`;
+      return `⚠️ No encontré al equipo "${typeof home === 'string' ? home : (home && home.nombre) || ''}"`;
     }
     if (!awayTeam) {
-      return `⚠️ No encontré al equipo "${away.nombre || away}"`;
+      return `⚠️ No encontré al equipo "${typeof away === 'string' ? away : (away && away.nombre) || ''}"`;
     }
 
     const homeMatches = await footballApi.getTeamMatches(homeTeam.id, 15);

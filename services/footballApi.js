@@ -741,6 +741,7 @@ const TEAM_NAME_MAP = {
  * Normaliza nombre de equipo para búsqueda
  */
 function normalizeTeamName(nombre) {
+  if (!nombre || typeof nombre !== 'string') return nombre;
   const lower = nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   return TEAM_NAME_MAP[lower] || lower;
 }
@@ -751,6 +752,9 @@ function normalizeTeamName(nombre) {
  */
 async function buscarEquipoDinamico(nombre) {
   try {
+    if (!nombre || typeof nombre !== 'string' || nombre.trim() === '') {
+      return null;
+    }
     // Normalizar nombre (brasil -> Brazil)
     const normalizedSearch = normalizeTeamName(nombre);
 

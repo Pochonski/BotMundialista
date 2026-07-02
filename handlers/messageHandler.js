@@ -229,7 +229,12 @@ async function messageHandler(client, message) {
   try {
     const geminiResult = await geminiService.analyzeMessage(text);
     if (geminiResult.success && geminiResult.intent !== 'UNKNOWN') {
-      console.log(`🤖 Gemini: ${geminiResult.intent} | ${geminiResult.equipo || geminiResult.home + ' vs ' + geminiResult.away}`);
+      const detail = geminiResult.equipo
+        || (geminiResult.home && geminiResult.away ? `${geminiResult.home} vs ${geminiResult.away}` : null)
+        || geminiResult.liga
+        || geminiResult.grupo
+        || '';
+      console.log(`🤖 Gemini: ${geminiResult.intent} | ${detail}`);
       parsedFromGemini = {
         intent: geminiResult.intent,
         equipo: geminiResult.equipo,

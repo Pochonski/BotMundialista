@@ -9,23 +9,25 @@ async function analizarEnfrentamiento(home, away) {
   try {
     let homeTeam, awayTeam;
 
-    if (home.buscarDinamico || !home.id) {
-      homeTeam = await footballApi.buscarEquipoDinamico(home.nombre || home);
+    if (typeof home === 'string' || (home && !home.id)) {
+      const homeName = typeof home === 'string' ? home : home.nombre;
+      homeTeam = await footballApi.buscarEquipoDinamico(homeName);
     } else {
       homeTeam = { id: home.id, name: home.nombre };
     }
 
-    if (away.buscarDinamico || !away.id) {
-      awayTeam = await footballApi.buscarEquipoDinamico(away.nombre || away);
+    if (typeof away === 'string' || (away && !away.id)) {
+      const awayName = typeof away === 'string' ? away : away.nombre;
+      awayTeam = await footballApi.buscarEquipoDinamico(awayName);
     } else {
       awayTeam = { id: away.id, name: away.nombre };
     }
 
     if (!homeTeam) {
-      return `⚠️ No encontré al equipo "${home.nombre || home}"`;
+      return `⚠️ No encontré al equipo "${typeof home === 'string' ? home : (home && home.nombre) || ''}"`;
     }
     if (!awayTeam) {
-      return `⚠️ No encontré al equipo "${away.nombre || away}"`;
+      return `⚠️ No encontré al equipo "${typeof away === 'string' ? away : (away && away.nombre) || ''}"`;
     }
 
     const homeMatches = await footballApi.getTeamMatches(homeTeam.id, 10);

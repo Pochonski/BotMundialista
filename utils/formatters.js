@@ -188,6 +188,70 @@ function formatMisEquipos(equipos) {
   return msg;
 }
 
+/**
+ * Formatea una línea de partido con marcador y resultado del equipo.
+ * Retorna además flags útiles para detectar eliminación/penales.
+ *
+ * @param {Object} match - { homeTeam, homeTeamId, homeScore, awayTeam, awayTeamId, awayScore, date, status, tournament }
+ * @param {string} teamId - ID del equipo para calcular marcador relativo
+ * @returns {Object} { line, isKnockout, lostOnPenalties, teamLost, marker, score }
+ */
+function formatMatchLine(match, teamId) {
+  const isHome = match.homeTeamId === teamId || match.homeTeamId == String(teamId);
+  const teamScore = isHome ? match.homeScore : match.awayScore;
+  const oppScore  = isHome ? match.awayScore  : match.homeScore;
+  const teamName  = isHome ? match.homeTeam   : match.awayTeam;
+  const oppName   = isHome ? match.awayTeam   : match.homeTeam;
+
+  const hasScore = teamScore != null && oppScore != null;
+  const marker = !hasScore ? '🕐'
+               : teamScore > oppScore ? '✅'
+               : teamScore < oppScore ? '❌'
+               : '🟰';
+  const score = hasScore ? `${teamScore}-${oppScore}` : 'vs';
+
+  const date = new Date(match.date).toLocaleDateString('es-ES', {
+    day: 'numeric', month: 'short', year: 'numeric'
+  });
+  const tournament = match.tournament || 'Sin torneo';
+  const penalties = /pen/i.test(match.status || '') ? ' (p.)' : '';
+
+  return {
+    line: `${date} | 🏆 ${tournament} | ${teamName} ${marker} ${score}${penalties} ${oppName}`,
+    isKnockout: /round|quarter|semi|final/i.test(tournament) && !/group/i.test(tournament),
+    lostOnPenalties: /pen/i.test(match.status || ''),
+    teamLost: hasScore && teamScore < oppScore,
+    teamWon: hasScore && teamScore > oppScore,
+    marker,
+    score,
+    raw: match
+  };
+}
+
+/**
+ * Detecta si el equipo fue eliminado en su partido más reciente.
+ * Criterio: el último partido es en fase eliminatoria Y el equipo perdió (en tiempo regular o penales).
+ *
+ * @param {Array} matches - Lista de partidos (orden: más reciente primero)
+ * @param {string} teamId
+ * @returns {Object|null} { phase, opponent, onPenalties, score, date } o null si no aplica
+ */
+function detectElimination(matches, teamId) {
+  if (!matches || matches.length === 0) return null;
+  const last = matches[0];
+  const formatted = formatMatchLine(last, teamId);
+  if (formatted.isKnockout && (formatted.teamLost || formatted.lostOnPenalties)) {
+    return {
+      phase: last.tournament,
+      opponent: last.homeTeamId == teamId ? last.awayTeam : last.homeTeam,
+      onPenalties: formatted.lostOnPenalties,
+      score: last.homeScore != null ? `${last.homeScore}-${last.awayScore}` : 'vs',
+      date: last.date
+    };
+  }
+  return null;
+}
+
 module.exports = {
   formatPartidosHoy,
   formatEstado,
@@ -198,5 +262,7 @@ module.exports = {
   formatAnalisis,
   formatResumen,
   formatEquipoSeguido,
-  formatMisEquipos
+  formatMisEquipos,
+  formatMatchLine,
+  detectElimination
 };

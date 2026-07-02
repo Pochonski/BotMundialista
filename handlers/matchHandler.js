@@ -1,6 +1,7 @@
 // Handler de partidos y resultados - Mundial 2026
 const footballApi = require('../services/footballApi');
 const { LIGAS } = require('../utils/constants');
+const { formatMatchLine, detectElimination } = require('../utils/formatters');
 
 /**
  * Partidos de hoy
@@ -102,11 +103,26 @@ async function getResultadoEquipo(equipo) {
 
     let msg = `⚽ *ÚLTIMOS PARTIDOS - ${teamName.toUpperCase()}*\n\n`;
 
-    matches.forEach(m => {
-      const score = m.homeScore !== null ? `${m.homeScore} - ${m.awayScore}` : 'vs';
-      const date = new Date(m.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
-      msg += `${date} | ${m.homeTeam} ${score} ${m.awayTeam}\n`;
+    // Mostrar los últimos 3 partidos con formato detallado
+    matches.slice(0, 3).forEach(m => {
+      msg += formatMatchLine(m, teamId).line + '\n';
     });
+
+    // Footer con estado del equipo
+    const elimination = detectElimination(matches, teamId);
+    if (elimination) {
+      const penMsg = elimination.onPenalties ? ' (perdió por penales)' : '';
+      msg += `\n📊 *Estado:* ❌ Eliminado en *${elimination.phase}*${penMsg}`;
+    } else {
+      const last = matches[0];
+      const lastFmt = formatMatchLine(last, teamId);
+      const oppName = last.homeTeamId == teamId ? last.awayTeam : last.homeTeam;
+      const status = lastFmt.teamWon ? `✅ Ganó a ${oppName}`
+                    : lastFmt.teamLost ? `❌ Perdió vs ${oppName}`
+                    : lastFmt.marker === '🕐' ? `🕐 Partido pendiente vs ${oppName}`
+                    : `🟰 Empató vs ${oppName}`;
+      msg += `\n📊 *Estado:* Sigue en competencia (último: ${status})`;
+    }
 
     return msg;
   } catch (error) {

@@ -226,6 +226,33 @@ async function messageHandler(client, message) {
   let parsedFromGemini = null;
   let parsed = { intent: 'UNKNOWN' };
 
+  // Manejar confirmación de /reset ANTES de procesar con Gemini
+  const lowerText = (text || '').toLowerCase().trim();
+  if (lowerText === 'borrar todo' || lowerText === 'borrartodo' || lowerText === '/borrar todo' || lowerText === '/borrartodo') {
+    if (userStorage.consumePendingReset(userId)) {
+      try {
+        const r = await userStorage.clearUserData(userId);
+        await message.reply(
+          `🗑 *Datos borrados*\n\n` +
+          `• Apodo local: ${r.alias ? 'sí' : 'no'}\n` +
+          `• Equipos seguidos: ${r.equipos_seguidos}\n` +
+          `• Historial de consultas: ${r.historial_consultas}\n\n` +
+          `Todo limpio. ¡Avisame si querés registrar algo de nuevo!`
+        );
+      } catch (e) {
+        console.error('Error borrando datos:', e.message);
+        await message.reply('⚠️ Hubo un error al borrar datos. Contactá al admin.');
+      }
+      return;
+    } else {
+      await message.reply('❌ No tenés un reset pendiente. Usá /reset para iniciar uno.');
+      return;
+    }
+  } else if (userStorage && userStorage.consumePendingReset) {
+    // Si hay reset pendiente y el user mandó algo más, cancelarlo en silencio
+    userStorage.cancelPendingReset && userStorage.cancelPendingReset(userId);
+  }
+
   try {
     const geminiResult = await geminiService.analyzeMessage(text);
     if (geminiResult.success && geminiResult.intent !== 'UNKNOWN') {

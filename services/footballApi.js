@@ -829,6 +829,34 @@ async function getTeamMatches(teamId, limit = 10) {
 }
 
 /**
+ * Próximos partidos pendientes (status NS o sin marcador) de un equipo
+ * @param {string} teamId
+ * @param {number} limit
+ * @returns {Array} partidos futuros ordenados por fecha ASC
+ */
+async function getUpcomingMatches(teamId, limit = 5) {
+  try {
+    const teamInfo = await getTeamInfo(teamId);
+    if (!teamInfo) return [];
+    const allMatches = await searchMatches(teamInfo.name);
+    const now = Date.now();
+    return allMatches
+      .filter(m =>
+        (m.homeTeamId === teamId || m.awayTeamId === teamId) &&
+        (m.homeScore == null || m.homeScore === undefined) &&
+        (!m.status || m.status === 'NS' || m.status === '')
+      )
+      .map(m => ({ ...m, _dateMs: m.date ? new Date(m.date).getTime() : Infinity }))
+      .filter(m => m._dateMs >= now - 86400000) // sólo futuros (con tolerancia 1 día)
+      .sort((a, b) => a._dateMs - b._dateMs)
+      .slice(0, limit);
+  } catch (error) {
+    console.error('Error getUpcomingMatches:', error.message);
+    return [];
+  }
+}
+
+/**
  * Jugadores de un equipo (búsqueda por nombre)
  * @param {string} teamId - ID del equipo
  */
@@ -893,6 +921,7 @@ module.exports = {
   getTeamInfo,
   getTeamLogo,
   getTeamMatches,
+  getUpcomingMatches,
   getTeamPlayers,
 
   // Jugadores

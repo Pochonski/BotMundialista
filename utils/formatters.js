@@ -362,5 +362,39 @@ module.exports = {
   formatEquipoSeguido,
   formatMisEquipos,
   formatMatchLine,
-  detectElimination
+  detectElimination,
+  getCurrentStreak
 };
+
+/**
+ * Detecta la racha actual de un equipo (W o L) y la devuelve con emoji.
+ * Por ejemplo "W4" (4 victorias seguidas) o "L2" (2 derrotas seguidas).
+ * Sin racha → null.
+ * @param {Array} matches - partidos ya jugados y ordenados DESC
+ * @param {string} teamId
+ * @returns {{streakType: 'W'|'L', count: number}|null}
+ */
+function getCurrentStreak(matches, teamId) {
+  if (!matches || matches.length === 0) return null;
+  let streakType = null;
+  let count = 0;
+  for (const m of matches) {
+    const isHome = m.homeTeamId == teamId;
+    const t = isHome ? m.homeScore : m.awayScore;
+    const o = isHome ? m.awayScore : m.homeScore;
+    if (t == null || o == null) break;
+    const result = t > o ? 'W' : t < o ? 'L' : 'D';
+    if (streakType === null) {
+      if (result === 'D') continue;
+      streakType = result;
+      count = 1;
+    } else if (result === streakType) {
+      count++;
+    } else if (result === 'D') {
+      continue;
+    } else {
+      break;
+    }
+  }
+  return streakType ? { streakType, count } : null;
+}

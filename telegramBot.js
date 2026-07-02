@@ -3,6 +3,7 @@ require('dotenv').config();
 const http = require('http');
 const fetch = require('node-fetch');
 const messageHandler = require('./handlers/messageHandler');
+const footballApi = require('./services/footballApi');
 const { pool, testConnection } = require('./database/connection');
 const userStorage = require('./utils/userStorage');
 
@@ -178,6 +179,44 @@ async function handleCommand(chatId, command, userName, userId) {
       await messageHandler(null, msgPartidos);
       return true;
 
+    case '/manana':
+    case '/mañana':
+    case '/tomorrow': {
+      const tomorrow = new Date(Date.now() + 86400000)
+        .toISOString().split('T')[0].replace(/-/g, '');
+      try {
+        const matches = await footballApi.getMatchesByDate(tomorrow);
+        const mundialIds = new Set(Object.values(footballApi.MUNDIAL_GRUPOS || {}));
+        const mundialMatches = (matches || []).filter(m => mundialIds.has(Number(m.leagueId)));
+        if (mundialMatches.length === 0) {
+          await sendMessage(chatId,
+            `📅 *MUNDIAL — MAÑANA*\n\n🟢 No hay partidos del Mundial programados para mañana.`);
+          return true;
+        }
+        const porGrupo = {};
+        mundialMatches.forEach(m => {
+          const letra = Object.entries(footballApi.MUNDIAL_GRUPOS)
+            .find(([_, id]) => Number(id) === Number(m.leagueId))?.[0] || '?';
+          if (!porGrupo[letra]) porGrupo[letra] = [];
+          porGrupo[letra].push(m);
+        });
+        let msg = `📅 *MUNDIAL — MAÑANA*\n\n`;
+        Object.keys(porGrupo).sort().forEach(g => {
+          msg += `📋 *GRUPO ${g}*\n`;
+          porGrupo[g].forEach(m => {
+            msg += `⚽ ${m.homeTeam} vs ${m.awayTeam}`;
+            if (m.time) msg += `  _(${m.time})_`;
+            msg += '\n';
+          });
+          msg += '\n';
+        });
+        await sendMessage(chatId, msg.trim());
+      } catch (e) {
+        await sendMessage(chatId, '⚠️ No pude obtener partidos de mañana.');
+      }
+      return true;
+    }
+
     case '/tabla':
     case '/clasificacion':
       const msgTabla = {
@@ -188,6 +227,72 @@ async function handleCommand(chatId, command, userName, userId) {
       };
       await messageHandler(null, msgTabla);
       return true;
+
+    case '/mundial': {
+      await sendMessage(chatId,
+        `🏆 *MUNDIAL 2026*\n\n` +
+        `🌎 *Sede:* EE.UU. · Canadá · México\n` +
+        `📅 *Fechas:* 11 junio – 19 julio 2026\n` +
+        `👥 *Equipos:* 48 selecciones\n` +
+        `🗂 *Grupos:* 12 (A a L)\n` +
+        `⚽ *Partidos:* 104 (64 fase grupos + 32 eliminación + 8 clasificación)\n` +
+        `🥇 *Final:* 19 jul 2026 — MetLife Stadium, NJ\n\n` +
+        `📋 *Comandos relacionados:*\n` +
+        `• /grupo [A-L] — Tabla de un grupo\n` +
+        `• /partidos — Partidos de hoy\n` +
+        `• /manana — Partidos de mañana\n` +
+        `• /ranking — Top goleadores del Mundial`
+      );
+      return true;
+    }
+
+    case '/yo':
+    case '/perfil':
+    case '/profile':
+      try {
+        const alias = userStorage.getAlias(userId);
+        let followedCount = 0;
+        let queryCount = 0;
+        try {
+          const f = await pool.query(
+            `SELECT COUNT(*) FROM equipos_seguidos WHERE id_usuario = $1`,
+            [userId]
+          );
+          followedCount = parseInt(f.rows[0]?.count || 0, 10);
+          const h = await pool.query(
+            `SELECT COUNT(*) FROM historial_consultas WHERE id_usuario = $1`,
+            [userId]
+          );
+          queryCount = parseInt(h.rows[0]?.count || 0, 10);
+        } catch (e) { /* DB opcional */ }
+        await sendMessage(chatId,
+          `👤 *TU PERFIL*\n\n` +
+          `🏷  *Apodo:* ${alias || userName || 'Sin definir'}\n` +
+          `🆔 *ID:* \`${userId}\`\n` +
+          `⭐ *Equipos seguidos:* ${followedCount}\n` +
+          `💬 *Consultas realizadas:* ${queryCount}\n\n` +
+          `📋 *Comandos útiles:*\n` +
+          `• /misfavoritos — Ver equipos seguidos\n` +
+          `• /cambiarusuario [nombre] — Cambiar apodo\n` +
+          `• /reset — Borrar todos mis datos`
+        );
+      } catch (e) {
+        await sendMessage(chatId, '⚠️ No pude cargar tu perfil.');
+      }
+      return true;
+
+    case '/reset': {
+      await sendMessage(chatId,
+        `⚠️ *Borrar todos mis datos*\n\n` +
+        `Esto eliminará:\n` +
+        `• Tu apodo personalizado\n` +
+        `• Todos los equipos que sigues\n` +
+        `• Tu historial de consultas\n\n` +
+        `Para confirmar, escribí: *BORRAR TODO*\n` +
+        `Para cancelar, enviá cualquier otro mensaje.`);
+      userStorage.markPendingReset(userId);
+      return true;
+    }
 
     default:
       // Comandos con argumentos: /resultado, /analizar, /info, /seguir
@@ -224,6 +329,185 @@ async function handleCommand(chatId, command, userName, userId) {
           reply: async (t) => await sendMessage(chatId, t)
         };
         await messageHandler(null, msgAna);
+        return true;
+      }
+
+      // Aliases de stats: /goles, /corners, /posesion, /tarjetas
+      const statAliases = [
+        { cmd: '/goles', tipo: 'goles' },
+        { cmd: '/corners', tipo: 'córners' },
+        { cmd: '/posesion', tipo: 'posesión' },
+        { cmd: '/posesión', tipo: 'posesión' },
+        { cmd: '/tarjetas', tipo: 'tarjetas' },
+        { cmd: '/goleador', tipo: 'goles' },
+      ];
+      for (const alias of statAliases) {
+        if (cmd === alias.cmd || cmd === alias.cmd + '@botmundialistabot') {
+          await sendMessage(chatId,
+            `📊 *${alias.cmd.replace('/', '').toUpperCase()} [equipo]*\n\n` +
+            `Uso: \`${alias.cmd} [equipo]\`\n\n` +
+            `Ejemplos:\n` +
+            `• ${alias.cmd} Brasil\n` +
+            `• ${alias.cmd} Argentina\n\n` +
+            `Te muestro ${alias.tipo} de los últimos partidos.`
+          );
+          return true;
+        }
+        if (cmd.startsWith(alias.cmd + ' ')) {
+          const equipo = text.replace(new RegExp(`^${alias.cmd}(?:@\\w+)? `, 'i'), '').trim();
+          const msgStat = {
+            from: chatId.toString(),
+            body: `${alias.tipo} de ${equipo}`,
+            hasMedia: false,
+            reply: async (t) => await sendMessage(chatId, t)
+          };
+          await messageHandler(null, msgStat);
+          return true;
+        }
+      }
+
+      // /racha [equipo] → muestra racha W/L y forma
+      if (cmd === '/racha' || cmd === '/racha@botmundialistabot') {
+        await sendMessage(chatId,
+          `🔥 *RACHA [equipo]*\n\n` +
+          `Uso: \`/racha [equipo]\`\n\n` +
+          `Ejemplos:\n` +
+          `• /racha Brasil\n` +
+          `• /racha Argentina\n\n` +
+          `Te muestro la racha actual (W = victorias, L = derrotas).`
+        );
+        return true;
+      }
+      if (cmd.startsWith('/racha ')) {
+        const equipo = text.replace(/^\/racha(?:@\w+)? /i, '').trim();
+        const msgSt = {
+          from: chatId.toString(),
+          body: `cual es la racha de ${equipo}`,
+          hasMedia: false,
+          reply: async (t) => await sendMessage(chatId, t)
+        };
+        await messageHandler(null, msgSt);
+        return true;
+      }
+
+      // /proximos [equipo] y /siguiente [equipo]
+      if (cmd === '/proximos' || cmd === '/siguiente' ||
+          cmd === '/proximos@botmundialistabot' || cmd === '/siguiente@botmundialistabot') {
+        await sendMessage(chatId,
+          `📅 *${cmd.startsWith('/siguiente') ? 'SIGUIENTE' : 'PRÓXIMOS'} [equipo]*\n\n` +
+          `Uso: \`${cmd} [equipo]\`\n\n` +
+          `• /proximos Brasil — Próximos 5 partidos\n` +
+          `• /siguiente Argentina — Solo el siguiente partido`
+        );
+        return true;
+      }
+      if (cmd.startsWith('/proximos ') || cmd.startsWith('/siguiente ')) {
+        const limit = cmd.startsWith('/siguiente') ? 1 : 5;
+        const equipo = text.replace(/^\/(proximos|siguiente)(?:@\w+)? /i, '').trim();
+        try {
+          const team = await footballApi.buscarEquipoDinamico(equipo);
+          if (!team) {
+            await sendMessage(chatId, `⚠️ No encontré al equipo "${equipo}".`);
+            return true;
+          }
+          const upcoming = await footballApi.getUpcomingMatches(team.id, limit);
+          if (!upcoming || upcoming.length === 0) {
+            await sendMessage(chatId, `📅 No hay partidos próximos para *${team.name}*.`);
+            return true;
+          }
+          let msg = `📅 *${cmd.startsWith('/siguiente') ? 'PRÓXIMO' : 'PRÓXIMOS'} PARTIDO${limit > 1 ? 'S' : ''} - ${team.name.toUpperCase()}*\n\n`;
+          upcoming.forEach(m => {
+            const date = new Date(m.date).toLocaleDateString('es-ES', {
+              weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+            });
+            const tournament = m.leagueName || m.tournament || 'Competición';
+            const isHome = m.homeTeamId == team.id;
+            msg += `📅 ${date}\n`;
+            msg += `  ${m.homeTeam} vs ${m.awayTeam}\n`;
+            msg += `  ${isHome ? '🟢 LOCAL' : '✈️ VISITANTE'} · 🏆 ${tournament}\n\n`;
+          });
+          await sendMessage(chatId, msg.trim());
+        } catch (e) {
+          await sendMessage(chatId, '⚠️ No pude obtener próximos partidos.');
+        }
+        return true;
+      }
+
+      // /dejarseguir [equipo]
+      if (cmd === '/dejarseguir' || cmd === '/dejarseguir@botmundialistabot') {
+        await sendMessage(chatId,
+          `🚫 *DEJAR DE SEGUIR [equipo]*\n\n` +
+          `Uso: \`/dejarseguir [equipo]\`\n\n` +
+          `• /dejarseguir Brasil\n` +
+          `• /dejarseguir Argentina`
+        );
+        return true;
+      }
+      if (cmd.startsWith('/dejarseguir ') || cmd.startsWith('/dejar_seguir ') || cmd.startsWith('/dejarseguir')) {
+        const equipo = text.replace(/^\/(dejarseguir|dejar_seguir)(?:@\w+)? /i, '').trim();
+        const msgNoSeg = {
+          from: chatId.toString(),
+          body: `dejar de seguir ${equipo}`,
+          hasMedia: false,
+          reply: async (t) => await sendMessage(chatId, t)
+        };
+        await messageHandler(null, msgNoSeg);
+        return true;
+      }
+      // Sin argumentos especiales: enviar el mensaje al messageHandler como texto
+      if (/^\/dejarseguir(?:@\w+)?$/i.test(cmd)) {
+        await sendMessage(chatId,
+          `🚫 *DEJAR DE SEGUIR [equipo]*\n\nUso: \`/dejarseguir [equipo]\``
+        );
+        return true;
+      }
+
+      // /misfavoritos, /misequipos, /misfavorito
+      if (cmd === '/misfavoritos' || cmd === '/misequipos' || cmd === '/misfavorito' ||
+          cmd === '/misfavoritos@botmundialistabot') {
+        const msgList = {
+          from: chatId.toString(),
+          body: 'mis equipos',
+          hasMedia: false,
+          reply: async (t) => await sendMessage(chatId, t)
+        };
+        await messageHandler(null, msgList);
+        return true;
+      }
+
+      // /dondever [equipo]
+      if (cmd === '/dondever' || cmd === '/dondever@botmundialistabot') {
+        await sendMessage(chatId,
+          `📺 *DÓNDE VER [equipo]*\n\n` +
+          `Uso: \`/dondever [equipo]\`\n\n` +
+          `Por ahora te muestro dónde se juega (estadio) el próximo partido.`
+        );
+        return true;
+      }
+      if (cmd.startsWith('/dondever ')) {
+        const equipo = text.replace(/^\/dondever(?:@\w+)? /i, '').trim();
+        try {
+          const team = await footballApi.buscarEquipoDinamico(equipo);
+          if (!team) {
+            await sendMessage(chatId, `⚠️ No encontré al equipo "${equipo}".`);
+            return true;
+          }
+          const upcoming = await footballApi.getUpcomingMatches(team.id, 1);
+          if (!upcoming || upcoming.length === 0) {
+            await sendMessage(chatId, `📺 No hay partidos próximos de *${team.name}* para mostrar sede.`);
+            return true;
+          }
+          const m = upcoming[0];
+          await sendMessage(chatId,
+            `📺 *PRÓXIMO PARTIDO - ${team.name.toUpperCase()}*\n\n` +
+            `${m.homeTeam} vs ${m.awayTeam}\n` +
+            `📅 ${new Date(m.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}\n` +
+            `🏆 ${m.leagueName || m.tournament || 'Competición'}\n\n` +
+            `ℹ️ Los derechos de transmisión varían por país. Te sugiero consultar la guía de TV de tu país (ej: "TyC Sports" o "ESPN" en Argentina, "TUDN" en México, "Movistar+" en España).`
+          );
+        } catch (e) {
+          await sendMessage(chatId, '⚠️ No pude obtener info.');
+        }
         return true;
       }
 

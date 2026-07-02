@@ -189,6 +189,57 @@ async function getResultadoEquipo(equipo) {
 }
 
 /**
+ * Próximos partidos pendientes de un equipo
+ * @param {string|Object} equipo
+ * @param {number} limit
+ */
+async function getProximosEquipo(equipo, limit = 5) {
+  try {
+    let teamId, teamName;
+    if (typeof equipo === 'string') {
+      teamName = equipo;
+    } else if (equipo && typeof equipo === 'object') {
+      teamId = equipo.id;
+      teamName = equipo.nombre;
+    }
+
+    if (!teamName || teamName.trim() === '') {
+      return '⚠️ No especificaste el equipo. Ej: `/proximos Brasil`';
+    }
+
+    if (!teamId || (equipo && equipo.buscarDinamico)) {
+      const team = await footballApi.buscarEquipoDinamico(teamName);
+      if (!team) return `⚠️ No encontré al equipo "${teamName}".`;
+      teamId = team.id;
+      teamName = team.name;
+    }
+
+    const upcoming = await footballApi.getUpcomingMatches(teamId, limit);
+    if (!upcoming || upcoming.length === 0) {
+      return `📅 *PRÓXIMOS PARTIDOS - ${teamName.toUpperCase()}*\n\n` +
+        `🟢 Sin partidos próximos en el horizonte.`;
+    }
+
+    let msg = `📅 *PRÓXIMOS PARTIDOS - ${teamName.toUpperCase()}*\n\n`;
+    upcoming.forEach(m => {
+      const date = new Date(m.date).toLocaleDateString('es-ES', {
+        day: 'numeric', month: 'short', year: 'numeric'
+      });
+      const tournament = m.leagueName || m.tournament || 'Competición';
+      const isHome = m.homeTeamId == teamId;
+      const homeAway = isHome ? '🟢 LOCAL' : '✈️ VISITANTE';
+      msg += `• ${date} · ${homeAway}\n`;
+      msg += `  ${m.homeTeam} vs ${m.awayTeam}\n`;
+      msg += `  🏆 ${tournament}\n\n`;
+    });
+    return msg.trim();
+  } catch (error) {
+    console.error('Error getProximosEquipo:', error);
+    return '⚠️ No pude obtener próximos partidos.';
+  }
+}
+
+/**
  * Resultado de un enfrentamiento específico entre dos equipos
  * Busca en los partidos de AMBOS equipos para mayor覆盖率
  */

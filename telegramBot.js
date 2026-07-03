@@ -443,7 +443,7 @@ async function handleCommand(chatId, command, userName, userId) {
         );
         return true;
       }
-      if (cmd.startsWith('/dejarseguir ') || cmd.startsWith('/dejar_seguir ') || cmd.startsWith('/dejarseguir')) {
+      if (cmd.startsWith('/dejarseguir ') || cmd.startsWith('/dejar_seguir ')) {
         const equipo = text.replace(/^\/(dejarseguir|dejar_seguir)(?:@\w+)? /i, '').trim();
         const msgNoSeg = {
           from: chatId.toString(),
@@ -624,7 +624,11 @@ async function pollingCycle() {
       offset,
       timeout: 30
     });
+    if (updates?.result?.length > 0) {
+      console.log(`📩 Recibidos ${updates.result.length} update(s)`);
+    }
     await processUpdates(updates);
+    maybeHeartbeat();
   } catch (error) {
     console.error('Error en polling:', error.message);
   }
@@ -632,6 +636,15 @@ async function pollingCycle() {
   // Continuar el loop
   if (isRunning) {
     setTimeout(pollingCycle, 500);
+  }
+}
+
+// Heartbeat cada 5 min para confirmar que polling sigue vivo
+let lastHeartbeat = Date.now();
+function maybeHeartbeat() {
+  if (Date.now() - lastHeartbeat > 5 * 60 * 1000) {
+    console.log(`💓 Bot vivo | uptime=${Math.floor(process.uptime())}s | offset=${offset}`);
+    lastHeartbeat = Date.now();
   }
 }
 

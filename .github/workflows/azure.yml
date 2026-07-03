@@ -15,23 +15,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: npm install
         run: npm ci --omit=dev
-
-      - name: Login to Azure (publish profile)
-        uses: azure/login@v1
-        with:
-          auth-type: publish-profile
-          creds: ${{ secrets.AZURE_PUBLISHPROFILE }}
 
       - name: Deploy to Azure
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_PUBLISHPROFILE }}
+          package: .
           startup-command: 'node telegramBot.js'
-
-      - name: Logout of Azure
-        run: |
-          az logout

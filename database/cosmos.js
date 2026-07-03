@@ -60,35 +60,62 @@ async function getById(containerName, id, partitionKey) {
   }
 }
 
-async function upsert(containerName, doc) {
+async function upsert(containerName, doc, retries = 3) {
   const c = getContainer(containerName);
   const { id, ...rest } = doc;
   const safe = { ...rest, id: id != null ? String(id) : id };
-  try {
-    const { resource } = await c.items.upsert(safe);
-    return resource;
-  } catch (e) {
-    console.error(`[cosmos.upsert ${containerName}] FAIL id=${safe.id}: ${e.code || ''} ${e.message?.substring(0, 200) || e}`);
-    throw e;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const { resource } = await c.items.upsert(safe);
+      if (resource && resource.id) return resource;
+      if (attempt < retries) {
+        const backoff = 500 * Math.pow(2, attempt);
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+      console.error(`[cosmos.upsert ${containerName}] empty response after ${retries} retries for id=${safe.id}`);
+      return null;
+    } catch (e) {
+      if (e.code === 429 || e.statusCode === 429 || (e.message && e.message.includes('429'))) {
+        const backoff = Math.min(10000, 1000 * Math.pow(2, attempt));
+        console.error(`[cosmos.upsert ${containerName}] throttled (429) id=${safe.id}, retry ${attempt + 1}/${retries} in ${backoff}ms`);
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+      console.error(`[cosmos.upsert ${containerName}] FAIL id=${safe.id}: ${e.code || ''} ${e.message?.substring(0, 200) || e}`);
+      throw e;
+    }
   }
+  return null;
 }
 
-async function bulkInsert(containerName, docs) {
+async function bulkInsert(containerName, docs, retries = 2) {
   if (!docs || docs.length === 0) return [];
   const c = getContainer(containerName);
   const safeDocs = docs.map((d) => {
     const { id, ...rest } = d;
     return { ...rest, id: id != null ? String(id) : id };
   });
-  const results = await c.items.bulk(safeDocs.map((d) => ({ operationType: 'Upsert', resourceBody: d })), { continueOnError: true });
-  const failed = results.filter((r) => r.statusCode !== 200 && r.statusCode !== 201);
-  if (failed.length > 0) {
-    console.error(`[cosmos.bulkInsert ${containerName}] ${failed.length}/${results.length} failed. First errors:`);
+
+  const toInsert = safeDocs.map((d) => ({ operationType: 'Upsert', resourceBody: d }));
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const results = await c.items.bulk(toInsert, { continueOnError: true });
+    const failed = results.filter((r) => r.statusCode !== 200 && r.statusCode !== 201);
+    if (failed.length === 0) return results;
+    const throttled = failed.filter((f) => f.statusCode === 429 || (f.errorMessage || '').includes('429'));
+    if (throttled.length > 0 && attempt < retries) {
+      const backoff = Math.min(15000, 2000 * Math.pow(2, attempt));
+      console.error(`[cosmos.bulkInsert ${containerName}] ${failed.length}/${results.length} throttled, retry ${attempt + 1}/${retries} in ${backoff}ms`);
+      await new Promise((r) => setTimeout(r, backoff));
+      continue;
+    }
+    console.error(`[cosmos.bulkInsert ${containerName}] ${failed.length}/${results.length} failed (final). First errors:`);
     failed.slice(0, 3).forEach((f, i) => {
       console.error(`  ${i}: status=${f.statusCode} code=${f.errorCode} msg=${(f.errorMessage || f.message || '').substring(0, 200)}`);
     });
+    return results;
   }
-  return results;
+  return [];
 }
 
 async function deleteDoc(containerName, id, partitionKey) {

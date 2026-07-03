@@ -86,10 +86,12 @@ async function bootstrapMundialStructure() {
   log(`  → related entities`);
 
   const brackets = await api.getBrackets(MUNDIAL_ID);
-  await cosmos.upsert('brackets', {
+  const r1 = await cosmos.upsert('brackets', {
     id: `${MUNDIAL_ID}`, competitionId: MUNDIAL_ID, ...brackets, _fetchedAt: now(),
   });
-  log(`  → brackets`);
+  log(`  → brackets (returned id=${r1?.id})`);
+  const cB = await cosmos.count('brackets');
+  log(`  → brackets verify: count=${cB}`);
 
   const history = await api.getCompetitionHistory(MUNDIAL_ID);
   const historyDocs = (history.table?.rows || []).map((row) => ({
@@ -157,59 +159,73 @@ async function bootstrapGameDetail(games) {
   const FRESH_MS = 6 * 60 * 60 * 1000;
   const nowTs = Date.now();
   const newMembers = {};
+  const pendingFetch = [];
   for (const g of games) {
     const gameId = g.id;
-    const matchupId = `${g.homeCompetitor?.id || 0}-${g.awayCompetitor?.id || 0}-${MUNDIAL_ID}`;
     const fetchedAt = cached[gameId];
     const isFresh = fetchedAt && (nowTs - new Date(fetchedAt).getTime()) < FRESH_MS;
-
-    if (!isFresh) {
-      try {
-        const h2h = await api.getGameH2H(gameId, matchupId, true);
-        await cosmos.upsert('game_h2h', {
-          id: String(gameId), gameId: Number(gameId), matchupId, ...h2h, _fetchedAt: now(),
-        });
-        h2hCount++;
-        state.markGameDetail(gameId, now());
-      } catch (e) { log(`    ! h2h ${gameId}: ${e.message?.substring(0, 100)}`); }
+    if (!isFresh || !cachedMembers[gameId]) {
+      pendingFetch.push({ game: g, isFresh, hasCachedMembers: !!cachedMembers[gameId] });
     } else {
       skipH2h++;
-    }
-
-    if (!isFresh || !cachedMembers[gameId]) {
-      try {
-        const overview = await api.getGameOverview(gameId, matchupId);
-        const idOv = `${gameId}-${overview.lastUpdateId || 0}`;
-        const r = await cosmos.upsert('game_overviews', {
-          id: idOv,
-          gameId: Number(gameId), lastUpdateId: overview.lastUpdateId, ...overview, _fetchedAt: now(),
-        });
-        if (r && r.id) {
-          ovCount++;
-          if (!cachedMembers[gameId]) {
-            const members = overview?.members || overview?.game?.members || [];
-            newMembers[gameId] = members.map((m) => m.athleteId).filter((id) => id && id > 0);
-          }
-        }
-      } catch (e) { log(`    ! ov ${gameId}: ${e.message?.substring(0, 100)}`); }
-    } else {
       skipOv++;
     }
-
-    if (g.statusGroup === 2 && !isFresh) {
-      try {
-        const pre = await api.getGamePreStats(gameId);
-        await cosmos.upsert('game_pre_stats', {
-          id: String(gameId), gameId: Number(gameId), ...pre, _fetchedAt: now(),
-        });
-        preCount++;
-        state.markPreStat(gameId);
-      } catch (e) { log(`    ! pre ${gameId}: ${e.message?.substring(0, 100)}`); }
-    } else if (g.statusGroup === 2) {
-      skipPre++;
-    }
-    if ((h2hCount + ovCount + skipH2h + skipOv) % 20 === 0) log(`    · h2h ${h2hCount}/${skipH2h}, ov ${ovCount}/${skipOv}, pre ${preCount}/${skipPre}`);
   }
+
+  log(`  · ${pendingFetch.length} juegos pendientes (de ${games.length})`);
+
+  for (const item of pendingFetch) {
+    const g = item.game;
+    const gameId = g.id;
+    const matchupId = `${g.homeCompetitor?.id || 0}-${g.awayCompetitor?.id || 0}-${MUNDIAL_ID}`;
+    try {
+      const h2h = await api.getGameH2H(gameId, matchupId, true);
+      await cosmos.upsert('game_h2h', {
+        id: String(gameId), gameId: Number(gameId), matchupId, ...h2h, _fetchedAt: now(),
+      });
+      h2hCount++;
+      state.markGameDetail(gameId, now());
+    } catch (e) { log(`    ! h2h ${gameId}: ${e.message?.substring(0, 100)}`); }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  for (const item of pendingFetch) {
+    const g = item.game;
+    const gameId = g.id;
+    const matchupId = `${g.homeCompetitor?.id || 0}-${g.awayCompetitor?.id || 0}-${MUNDIAL_ID}`;
+    if (item.isFresh && item.hasCachedMembers) continue;
+    try {
+      const overview = await api.getGameOverview(gameId, matchupId);
+      const idOv = `${gameId}-${overview.lastUpdateId || 0}`;
+      const r = await cosmos.upsert('game_overviews', {
+        id: idOv,
+        gameId: Number(gameId), lastUpdateId: overview.lastUpdateId, ...overview, _fetchedAt: now(),
+      });
+      if (r && r.id) {
+        ovCount++;
+        if (!item.hasCachedMembers) {
+          const members = overview?.members || overview?.game?.members || [];
+          newMembers[gameId] = members.map((m) => m.athleteId).filter((id) => id && id > 0);
+        }
+      }
+    } catch (e) { log(`    ! ov ${gameId}: ${e.message?.substring(0, 100)}`); }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  const pendingPre = pendingFetch.filter((it) => it.game.statusGroup === 2 && !it.isFresh);
+  for (const item of pendingPre) {
+    const gameId = item.game.id;
+    try {
+      const pre = await api.getGamePreStats(gameId);
+      await cosmos.upsert('game_pre_stats', {
+        id: String(gameId), gameId: Number(gameId), ...pre, _fetchedAt: now(),
+      });
+      preCount++;
+      state.markPreStat(gameId);
+    } catch (e) { log(`    ! pre ${gameId}: ${e.message?.substring(0, 100)}`); }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
   if (Object.keys(newMembers).length > 0) {
     const s2 = state.loadState();
     Object.assign(s2.athletes.memberIdsByGame, newMembers);

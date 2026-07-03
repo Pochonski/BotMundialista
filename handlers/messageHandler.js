@@ -10,6 +10,7 @@ const tableHandler = require('./tableHandler');
 const bettingHandler = require('./bettingHandler');
 const betImageHandler = require('./betImageHandler');
 const geminiService = require('../services/geminiService');
+const userStorage = require('../utils/userStorage');
 
 // Estados en memoria (para registration flow y modo demo)
 const MAX_MAP_SIZE = 1000; // Límite para prevenir memory leak

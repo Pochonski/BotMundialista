@@ -614,9 +614,9 @@ async function processUpdates(updates) {
 
       const handled = await handleCommand(chatId, text, user, String(userId));
       if (handled) continue;
-      // Si no se reconoció el comando, pasar al messageHandler como texto normal (sin el /)
-      const textSinComando = text.replace(/^\/[a-z]+\s*/i, '');
-      if (textSinComando !== text) {
+      // Si no se reconoció el comando, intentar procesar el cuerpo (sin el /) como mensaje natural
+      const textSinComando = text.replace(/^\/[a-z@0-9_]+\s*/i, '').trim();
+      if (textSinComando) {
         const msgObj = {
           from: chatId.toString(),
           body: textSinComando,

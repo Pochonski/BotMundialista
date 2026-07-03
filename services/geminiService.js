@@ -132,39 +132,46 @@ Usuario: "Tabla del mundial"
  * Analiza un mensaje usando Gemini para extraer intent y entidades
  */
 async function analyzeMessage(message) {
-  try {
-    const prompt = `${BOT_CONTEXT}
+  return analyzeMessageRaw(`${BOT_CONTEXT}
 
 Mensaje del usuario: "${message}"
 
-Responde con JSON válido:`;
+Responde con JSON válido:`);
+}
 
-    const result = await model.generateContent(prompt);
+/**
+ * Analiza un prompt arbitrario y devuelve el JSON parseado
+ */
+async function analyzeMessageRaw(prompt) {
+  try {
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: 'application/json' },
+    });
     const response = result.response;
     const text = response.text().trim();
 
-    // Extraer JSON de la respuesta
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      // Normalizar intent a minúsculas y guiones bajos para que coincida con INTENTOS
-      const normalizedIntent = (parsed.intent || 'UNKNOWN').toLowerCase().replace(/[-\s]/g, '_');
+      const intent = (parsed.intent || 'UNKNOWN').toLowerCase().replace(/[-\s]/g, '_');
       return {
         success: true,
-        intent: normalizedIntent,
+        intent,
         equipo: parsed.equipo || null,
         home: parsed.home || null,
         away: parsed.away || null,
         fecha: parsed.fecha || null,
         liga: parsed.liga || null,
-        grupo: parsed.grupo || null
+        grupo: parsed.grupo || null,
+        raw: parsed,
       };
     }
 
     return { success: false, intent: 'UNKNOWN' };
   } catch (error) {
-    console.error('Error Gemini:', error.message);
-    return { success: false, intent: 'UNKNOWN', error: error.message };
+    console.error('Error Gemini analyzeMessageRaw:', error.message);
+    return null;
   }
 }
 
@@ -214,5 +221,6 @@ async function generateNaturalResponse(intent, entities) {
 
 module.exports = {
   analyzeMessage,
+  analyzeMessageRaw,
   generateNaturalResponse
 };

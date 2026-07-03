@@ -57,18 +57,20 @@ async function countWithRetry(containerName, attempts = 10, delayMs = 1500) {
   return await cosmos.count(containerName).catch(() => -1);
 }
 
+const REQUIRED_CONTAINERS = [
+  'catalog', 'games', 'game_overviews', 'game_pre_stats', 'game_h2h',
+  'standings', 'tournament_stats', 'predictions',
+  'athletes', 'athlete_careers', 'athlete_trophies', 'athlete_transfers',
+  'athlete_chart_events', 'athlete_next_games',
+  'brackets', 'competition_history', 'highlights',
+  'trends', 'news', 'betting_tips', 'bet_followers',
+];
+
 const FLAKY_CONTAINERS = new Set(['game_overviews', 'brackets', 'standings']);
 
 async function containerCounts() {
   await header('2. CONTAINER COUNTS (con retry agresivo por consistencia eventual)');
-  const required = [
-    'catalog', 'games', 'game_overviews', 'game_pre_stats', 'game_h2h',
-    'standings', 'tournament_stats', 'predictions',
-    'athletes', 'athlete_careers', 'athlete_trophies', 'athlete_transfers',
-    'athlete_chart_events', 'athlete_next_games',
-    'brackets', 'competition_history', 'highlights',
-    'trends', 'news', 'betting_tips',
-  ];
+  const required = REQUIRED_CONTAINERS;
   const lazy = ['game_snapshots', 'odds_lines', 'odds_misc', 'fixtures', 'athlete_games'];
 
   info(`contando ${required.length} contenedores en paralelo (con retry agresivo)...`);
@@ -77,6 +79,10 @@ async function containerCounts() {
   info(`  ${((Date.now() - t0) / 1000).toFixed(2)}s`);
 
   for (const [c, n] of requiredCounts) {
+    if (c === 'bet_followers') {
+      info(`${c} = ${n} (esperado 0 hasta que un usuario siga un ticket)`);
+      continue;
+    }
     if (FLAKY_CONTAINERS.has(c) && n === 0) {
       console.log(`  ${C.y}\u26a0${C.r} ${c} = 0 (sabido flaky: small docs pueden evaporarse tras writes masivos; re-fetching brackets/standings/overviews ahora)`);
       const api = require('../services/scores365Service');
@@ -324,6 +330,59 @@ async function standingsTest() {
   });
 }
 
+async function newServicesTest() {
+  await header('9. NEW SERVICES (notifier, intentParser, betEvaluator, followHandler)');
+  const notifier = require('../services/notifier');
+  const intentParser = require('../services/intentParser');
+  const betEvaluator = require('../services/betEvaluator');
+  const followHandler = require('../handlers/followHandler');
+  const ctx = require('../services/conversationContext');
+
+  let notifierOk = false;
+  notifier.once('test:ping', (e) => { notifierOk = e.foo === 'bar'; });
+  notifier.emitMatchEvent('test:ping', { foo: 'bar' });
+  check('notifier EventEmitter funciona', notifierOk);
+
+  const qp1 = intentParser.quickParse('/follow 555 outcome');
+  check('quickParse /follow 555 outcome', qp1 && qp1.intent === 'follow' && qp1.mode === 'outcome_only' && qp1.ticketId === '555');
+  const qp2 = intentParser.quickParse('/misapuestas');
+  check('quickParse /misapuestas', qp2 && qp2.intent === 'list_followed' && qp2.confidence === 1);
+  const qp3 = intentParser.quickParse('/unfollow 555');
+  check('quickParse /unfollow 555', qp3 && qp3.intent === 'unfollow' && qp3.ticketId === '555');
+
+  const state = { homeGoals: 1, awayGoals: 2, totalGoals: 3, totalCards: 0, totalCorners: 0, homeName: 'Argentina', awayName: 'Francia' };
+  for (const tipo of Object.keys(betEvaluator.BET_TYPES)) {
+    const r = betEvaluator.BET_TYPES[tipo].evaluate({ tipo, linea: '2.5', valor: 'local' }, state);
+    check(`betEvaluator ${tipo} → status válido`, ['pending', 'winning', 'losing', 'push'].includes(r.status), `got: ${r.status}`);
+  }
+
+  const changed = betEvaluator.statusChanged(
+    { status: 'pending', selecciones: [{ status: 'pending', value: 2 }] },
+    { status: 'winning', selecciones: [{ status: 'winning', value: 3 }] }
+  );
+  check('statusChanged detecta cambio winning', changed === true);
+
+  const notChanged = betEvaluator.statusChanged(
+    { status: 'pending', selecciones: [{ status: 'pending', value: 2 }] },
+    { status: 'pending', selecciones: [{ status: 'pending', value: 2 }] }
+  );
+  check('statusChanged no detecta sin cambio', notChanged === false);
+
+  const summary = ctx.summarize('test_chat_e2e');
+  check('conversationContext summarize ok', summary && summary.defaultMode === 'all_events');
+
+  ctx.rememberTicket('test_chat_e2e', '12345');
+  const after = ctx.summarize('test_chat_e2e');
+  check('conversationContext rememberTicket', after.recentTickets && after.recentTickets.includes('12345'), `tickets: ${JSON.stringify(after.recentTickets)}`);
+
+  const tf = await followHandler.handleFollowCommand('test_chat_e2e', '99999');
+  check('followHandler ticket inexistente', tf && tf.ok === false);
+  const tl = await followHandler.handleListCommand('test_chat_e2e');
+  check('followHandler list empty', tl && tl.ok === true);
+
+  ctx.flushSync();
+}
+
 async function main() {
   console.log(`${C.bld}BotMundialista · Cosmos DB + 365scores · Test E2E Mundial 2026${C.r}`);
   console.log(`${C.dim}Cosmos: ${process.env.COSMOS_ENDPOINT}${C.r}`);
@@ -336,6 +395,7 @@ async function main() {
   await bracketsAndHistoryTest();
   await newsTrendsTipsTest();
   await standingsTest();
+  await newServicesTest();
 
   await header('RESUMEN');
   console.log(`  ${C.g}Pasados: ${passed}${C.r}`);

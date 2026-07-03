@@ -33,6 +33,8 @@
     { "name": "trends", "partitionKey": "/scope", "defaultTtl": 2592000, "docIds": "game-{gameId}-{trendId}, comp-{competitionId}-{trendId}, sport-{sportType}-{trendId}", "indexing": { "includedPaths": ["/scope/?", "/gameId/?", "/competitionId/?", "/sportType/?"], "excludedPaths": ["/_etag/?", "/_self/?"] } },
     { "name": "news", "partitionKey": "/scope", "defaultTtl": 2592000, "docIds": "sport-{id}, comp-{id}, game-{id}, athlete-{id}", "indexing": { "includedPaths": ["/scope/?", "/publishDate/?", "/competitionId/?", "/gameId/?", "/athleteId/?"], "excludedPaths": ["/_etag/?", "/_self/?"] } },
 
-    { "name": "betting_tips", "partitionKey": "/gameId", "defaultTtl": -1, "docIds": "{gameId}-{tipType}", "indexing": { "includedPaths": ["/gameId/?", "/generatedAt/?", "/tipType/?"], "excludedPaths": ["/_etag/?", "/_self/?"] } }
+    { "name": "betting_tips", "partitionKey": "/gameId", "defaultTtl": -1, "docIds": "{gameId}-{tipType}", "indexing": { "includedPaths": ["/gameId/?", "/generatedAt/?", "/tipType/?"], "excludedPaths": ["/_etag/?", "/_self/?"] } },
+
+    { "name": "bet_followers", "partitionKey": "/ticketId", "defaultTtl": -1, "docIds": "ticket-{ticketId}", "indexing": { "includedPaths": ["/ticketId/?", "/chatIds/?"], "excludedPaths": ["/_etag/?", "/_self/?"] } }
   ]
 }

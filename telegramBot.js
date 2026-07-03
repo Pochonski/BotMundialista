@@ -3,9 +3,22 @@ require('dotenv').config();
 const http = require('http');
 const fetch = require('node-fetch');
 const messageHandler = require('./handlers/messageHandler');
+const followHandler = require('./handlers/followHandler');
+const conversationalHandler = require('./handlers/conversationalHandler');
 const footballApi = require('./services/footballApi');
 const { pool, testConnection } = require('./database/connection');
 const userStorage = require('./utils/userStorage');
+const telegramNotifier = require('./services/telegramNotifier');
+const conversationContext = require('../services/conversationContext');
+
+if (process.env.ENABLE_LIVE_NOTIFIER === 'true') {
+  try {
+    telegramNotifier.registerBot({ sendMessage }, 'telegram');
+    telegramNotifier.attach();
+  } catch (e) {
+    console.error('[telegramBot] error attaching notifier:', e.message);
+  }
+}
 
 // Token del bot de Telegram
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -577,6 +590,28 @@ async function processUpdates(updates) {
 
     // Si es un comando, intentar manejarlo
     if (text.startsWith('/')) {
+      const lowerText = text.toLowerCase();
+      const botSuffix = '@botmundialistabot';
+      const cleaned = lowerText.split(' ')[0].split('@')[0];
+
+      if (cleaned === '/follow') {
+        const args = text.replace(/^\/[a-z@0-9_]+/i, '').trim();
+        const result = await followHandler.handleFollowCommand(String(userId), args);
+        await sendMessage(chatId, result.message);
+        continue;
+      }
+      if (cleaned === '/unfollow' || cleaned === '/dejarseguir') {
+        const args = text.replace(/^\/[a-z@0-9_]+/i, '').trim();
+        const result = await followHandler.handleUnfollowCommand(String(userId), args);
+        await sendMessage(chatId, result.message);
+        continue;
+      }
+      if (cleaned === '/misapuestas' || cleaned === '/siguiendo' || cleaned === '/siguiendo@botmundialistabot') {
+        const result = await followHandler.handleListCommand(String(userId));
+        await sendMessage(chatId, result.message);
+        continue;
+      }
+
       const handled = await handleCommand(chatId, text, user, String(userId));
       if (handled) continue;
       // Si no se reconoció el comando, pasar al messageHandler como texto normal (sin el /)
@@ -590,6 +625,17 @@ async function processUpdates(updates) {
         };
         await messageHandler(null, msgObj);
         continue;
+      }
+    } else {
+      // Mensaje no-comando: pasar por el conversational handler primero
+      try {
+        const result = await conversationalHandler.handleMessage(String(userId), text);
+        if (result.handled && result.message) {
+          await sendMessage(chatId, result.message);
+          continue;
+        }
+      } catch (e) {
+        console.error('[telegramBot] conversationalHandler error:', e.message);
       }
     }
 

@@ -46,3 +46,5 @@ temp/
 # Cosmos DB bootstrap state (caches what's already ingested)
 database/.scores365-state.json
 database/.scores365-state.json.tmp
+database/.conversation-context.json
+database/.conversation-context.json.tmp

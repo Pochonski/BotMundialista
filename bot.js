@@ -2,7 +2,10 @@ require('dotenv').config();
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const messageHandler = require('./handlers/messageHandler');
+const followHandler = require('./handlers/followHandler');
+const conversationalHandler = require('./handlers/conversationalHandler');
 const notificationService = require('./services/notificationService');
+const telegramNotifier = require('./services/telegramNotifier');
 const { testConnection } = require('./database/connection');
 
 const client = new Client({
@@ -54,6 +57,38 @@ client.on('disconnected', (reason) => {
 // Message handler
 client.on('message', async (message) => {
   try {
+    const text = (message.body || '').trim();
+    const chatId = (message.from || '').replace(/[^0-9]/g, '') || message.from;
+    if (text.startsWith('/')) {
+      const lower = text.toLowerCase().split(' ')[0].split('@')[0];
+      if (lower === '/follow') {
+        const args = text.replace(/^\/[a-z@0-9_]+/i, '').trim();
+        const r = await followHandler.handleFollowCommand(chatId, args);
+        await message.reply(r.message);
+        return;
+      }
+      if (lower === '/unfollow' || lower === '/dejarseguir') {
+        const args = text.replace(/^\/[a-z@0-9_]+/i, '').trim();
+        const r = await followHandler.handleUnfollowCommand(chatId, args);
+        await message.reply(r.message);
+        return;
+      }
+      if (lower === '/misapuestas' || lower === '/siguiendo') {
+        const r = await followHandler.handleListCommand(chatId);
+        await message.reply(r.message);
+        return;
+      }
+    } else {
+      try {
+        const result = await conversationalHandler.handleMessage(chatId, text);
+        if (result.handled && result.message) {
+          await message.reply(result.message);
+          return;
+        }
+      } catch (e) {
+        console.error('[bot.js] conversationalHandler error:', e.message);
+      }
+    }
     await messageHandler(client, message);
   } catch (error) {
     console.error('Error procesando mensaje:', error);

@@ -26,4 +26,3 @@ jobs:
           app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
           publish-profile: ${{ secrets.AZURE_PUBLISHPROFILE }}
           package: .
-          startup-command: 'node telegramBot.js'

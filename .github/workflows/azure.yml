@@ -23,6 +23,7 @@ jobs:
       - name: Login to Azure (publish profile)
         uses: azure/login@v1
         with:
+          auth-type: publish-profile
           creds: ${{ secrets.AZURE_PUBLISHPROFILE }}
 
       - name: Deploy to Azure

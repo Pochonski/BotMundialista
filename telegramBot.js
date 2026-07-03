@@ -9,7 +9,7 @@ const footballApi = require('./services/footballApi');
 const { pool, testConnection } = require('./database/connection');
 const userStorage = require('./utils/userStorage');
 const telegramNotifier = require('./services/telegramNotifier');
-const conversationContext = require('../services/conversationContext');
+const conversationContext = require('./services/conversationContext');
 
 if (process.env.ENABLE_LIVE_NOTIFIER === 'true') {
   try {

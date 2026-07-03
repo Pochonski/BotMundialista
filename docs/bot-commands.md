@@ -1,0 +1,260 @@
+# Comandos del bot
+
+El bot soporta **dos formas de entrada**:
+1. **Comandos explícitos** (`/comando args`) — parseados localmente, alta confianza
+2. **Lenguaje natural** (Gemini) — el usuario puede escribir como habla
+
+---
+
+## Tabla maestra de comandos
+
+| Comando | Aliases | Handler | NLU | Descripción |
+|---|---|---|---|---|
+| `/start` | `/inicio` | telegramBot | no | Mensaje de bienvenida + ayuda |
+| `/help` | `/ayuda` | telegramBot | no | Lista de comandos |
+| `/partidos` | `/hoy` | telegramBot → matchHandler | sí | Partidos de hoy |
+| `/manana` | `/mañana`, `/tomorrow` | telegramBot | sí | Partidos de mañana |
+| `/tabla` | `/clasificacion` | telegramBot → tableHandler | sí | Tabla de posiciones (de la liga que infiera o del Mundial) |
+| `/mundial` | — | telegramBot → tableHandler | sí | Tabla del Mundial |
+| `/goles` | — | telegramBot → statsHandler | sí | Goles de un equipo en últimos partidos |
+| `/corners` | — | telegramBot → statsHandler | sí | Córners de un equipo |
+| `/posesion` | `/posesión` | telegramBot → statsHandler | sí | Posesión promedio |
+| `/tarjetas` | — | telegramBot → statsHandler | sí | Tarjetas |
+| `/goleador` | — | telegramBot → statsHandler | sí | Goleador del equipo |
+| `/racha` | — | telegramBot | sí | Racha W/L/D + forma reciente |
+| `/yo` | `/perfil`, `/profile` | telegramBot → messageHandler | no | Perfil del usuario (alias, equipos seguidos) |
+| `/cambiarnombre` | `/cambiarusuario` | telegramBot | no | Cambiar alias |
+| `/mialias` | — | telegramBot | no | Ver mi alias actual |
+| `/reset` | — | telegramBot | no | Resetear mis datos |
+| `/follow <id>` | — | telegramBot → followHandler | sí | Seguir un ticket |
+| `/unfollow <id>` | `/dejarseguir` | telegramBot → followHandler | sí | Dejar de seguir |
+| `/misapuestas` | `/siguiendo` | telegramBot → followHandler | sí | Ver tickets que sigo |
+
+Además:
+- **Mensaje libre (no comando)** → pasa por `messageHandler` que usa Gemini para detectar intent
+- **Comando desconocido `/X`** → si tiene argumentos, se reenvía a messageHandler con el prefijo `/` removido
+- **Imagen con apuesta** → `betImageHandler` + `betParserService` (OCR con Tesseract + parser)
+
+---
+
+## Lenguaje natural (Gemini)
+
+El bot entiende frases coloquiales en español. Ejemplos de intents que detecta:
+
+### INTENTS del `geminiService.js` (legacy)
+
+| Intent | Usuario dice | Bot hace |
+|---|---|---|
+| `SALUDO` | "hola", "buenas", "qué tal" | Saludo amigable |
+| `HELP` | "qué puedes hacer", "ayuda" | Lista de comandos |
+| `PARTIDOS_HOY` | "qué hay hoy", "partidos de hoy" | Lista de partidos del día |
+| `PARTIDO_FECHA` | "qué juega Brasil mañana", "partidos del viernes" | Partidos de una fecha futura |
+| `RESULTADO` | "cómo le fue a Brasil", "resultado del último partido de Argentina" | Último resultado del equipo |
+| `RESULTADO_VS` | "Brasil vs Argentina", "última vez México vs Argentina" | H2H histórico |
+| `INFO_EQUIPO` | "quién es Scaloneta", "info de Alemania" | Descripción del equipo |
+| `ESTADISTICA` | "stats de Brasil", "cuántos goles hizo Brasil" | Stats del equipo |
+| `TABLA` | "cómo va la premier", "tabla de la liga española" | Tabla de la liga |
+| `TABLA_MUNDIAL` | "tabla del mundial" | Tabla general del Mundial |
+| `TABLA_GRUPO` | "tabla del grupo A", "cómo va el grupo C" | Tabla del grupo específico |
+| `ANALISIS` | "analiza el próximo Brasil vs Francia", "pronóstico" | Análisis pre-partido |
+| `SEGUIR_EQUIPO` | "quiero seguir a México", "notifícame de X" | Agrega equipo a seguimiento |
+| `DEJAR_SEGUIR` | "ya no quiero seguir a Chile", "deja de seguir a X" | Quita equipo |
+| `MIS_EQUIPOS` | "a quién sigo", "mis equipos" | Lista de equipos seguidos |
+| `UNKNOWN` | "qué cracks", insultos alegres, etc. | Conversación casual |
+
+### INTENTS del `intentParser.js` (nuevo)
+
+| Intent | Usuario dice | Bot hace |
+|---|---|---|
+| `follow` | "sígueme el 555", "avísame del 123" | Llama `followHandler.followTicket()` |
+| `unfollow` | "deja de seguir el 555" | Llama `followHandler.unfollowTicket()` |
+| `list_followed` | "qué tickets sigo", "qué sigo" | Llama `followHandler.listFollowed()` |
+| `change_mode` | "cambia el 555 a solo cuando gane" | Llama `followHandler.changeMode()` |
+| `query_stats` | "stats de Portugal Croacia" | (futuro) stats del partido |
+| `query_live` | "partidos en vivo" | (futuro) lista partidos en vivo |
+| `chat` | (todo lo demás) | Deja que messageHandler decida |
+
+---
+
+## Flujo de un mensaje
+
+```
+👤 "sígueme el 555 solo cuando gane"
+                    │
+                    ▼
+        ┌───────────────────────┐
+        │     telegramBot.js     │  polling → /getUpdates
+        │     onMessage()        │
+        └───────────┬───────────┘
+                    │ text.startsWith('/') = false (no es comando)
+                    ▼
+        ┌───────────────────────┐
+        │  conversationalHandler│  quickParse: no match
+        │  .handleMessage()     │  → Gemini: intent=follow, ticketId=555, mode=outcome_only
+        └───────────┬───────────┘
+                    │ confidence ≥ 0.6
+                    ▼
+        ┌───────────────────────┐
+        │  followHandler        │  getTicketInfo(555) → ticket del user
+        │  .handleIntentFollow() │  upsert bet_followers mode=outcome_only
+        └───────────┬───────────┘
+                    │
+                    ▼
+        🤖 "✅ Listo, sigo tu ticket #555 (Portugal vs Croacia). Te aviso solo cuando sepas si ganaste."
+```
+
+---
+
+## Flujo cuando ocurre un evento (live poller)
+
+```
+⏰ liveGamesPoller cada 25s
+                    │
+                    ▼
+        ┌───────────────────────┐
+        │  api.getGameStats()   │  con lastUpdateId
+        │  calcula diff        │  goles: 0→1, tarj: 0→0
+        └───────────┬───────────┘
+                    │
+                    ▼
+        notifier.emit('goal:scored', { gameId, team: 'Portugal', minute: '32' })
+                    │
+                    ▼
+        ┌───────────────────────┐
+        │  telegramNotifier    │  notifier.on('event:any', ...)
+        │  .notifyChats(event) │  → findAffectedChats(event)
+        └───────────┬───────────┘
+                    │ betEvaluator busca bet_followers WHERE gameId=event.gameId
+                    ▼
+        ┌───────────────────────┐
+        │  betEvaluator         │  por cada chatId suscrito:
+        │  .findAffectedChats() │  si mode='all_events' → notifica
+        └───────────┬───────────┘   si mode='outcome_only' → evalúa, notifica solo si cambió
+                    │
+                    ▼
+        🤖 Al chat: "⚽ Portugal (min 32')
+              🎫 Ticket #555 (Portugal vs Croacia)
+              📊 Marcador: 1-0
+              🎯 Ganaste: ambos equipos marcan (goles 1-0)
+              ⏳ Pendiente: total goles (1)"
+```
+
+---
+
+## Comandos `/` detallados
+
+### `/start`, `/inicio`
+Mensaje de bienvenida + lista de ejemplos de uso.
+
+### `/partidos`, `/hoy`
+Llama `messageHandler` con `body: "partidos de hoy"`. Este detecta el equipo y fecha. Si no hay equipos específicos, usa el Mundial.
+
+### `/manana`, `/mañana`, `/tomorrow`
+Idem pero con "mañana" en el body. Si Gemini detecta una fecha específica, usa esa.
+
+### `/tabla [equipo]`, `/clasificacion`
+Si no se especifica liga, muestra la tabla del Mundial. Si se especifica equipo, muestra la tabla del grupo (si es selección del Mundial) o la liga (si es club).
+
+### `/mundial`
+Muestra la tabla general del Mundial 2026 (todos los grupos en formato compacto).
+
+### `/goles <equipo>`
+Muestra los últimos goles anotados/recibidos por el equipo en partidos recientes.
+
+### `/posesion <equipo>` / `/posesión <equipo>`
+Muestra la posesión promedio del equipo en sus últimos partidos.
+
+### `/corners <equipo>`
+Muestra córners a favor y en contra.
+
+### `/tarjetas <equipo>`
+Muestra tarjetas amarillas y rojas.
+
+### `/goleador <equipo>`
+Muestra el ranking de goleadores del equipo en el Mundial.
+
+### `/racha <equipo>`
+Muestra últimos 5-10 resultados (W/L/D) y forma reciente (ej. WWWDL).
+
+### `/yo`, `/perfil`, `/profile`
+Muestra:
+- Tu alias configurado
+- Equipos que sigues
+- Tickets de apuesta que sigues (si está implementado)
+
+### `/cambiarnombre <nuevo_alias>`, `/cambiarusuario <nuevo>`
+Cambia el alias. Límite: 30 caracteres.
+
+### `/mialias`
+Muestra el alias actual.
+
+### `/reset`
+Resetea todos los datos del usuario (alias, equipos seguidos, tickets seguidos). Pide confirmación.
+
+### `/follow <ticket_id> [all|outcome]`
+Suscribe al usuario a un ticket de apuesta. Valida que el ticket existe y pertenece al usuario.
+
+- `/follow 555` → modo `all_events` (default): notifica con cada gol, tarjeta, etc.
+- `/follow 555 outcome` → modo `outcome_only`: notifica solo cuando sepas si ganaste o perdiste
+- `/follow 555 all` → explícito `all_events`
+
+### `/unfollow <ticket_id>`, `/dejarseguir <ticket_id>`
+Desuscribe del ticket.
+
+### `/misapuestas`, `/siguiendo`
+Lista los tickets que el usuario sigue actualmente, con su modo y estado.
+
+---
+
+## Ejemplos de conversación
+
+```
+👤: hola
+🤖: ¡Hola! Soy BotMundialista 🏆. Pregúntame sobre el Mundial 2026, equipos o apuestas. Ej: "cómo le fue a Brasil", "tabla del grupo A", o "sígueme el ticket 555".
+
+👤: tabla grupo c
+🤖: 🏆 Grupo C - Mundial 2026:
+     1. 🇦🇷 Argentina   7 pts (3-1)
+     2. 🇧🇷 Brasil      4 pts
+     3. 🇲🇽 México      4 pts
+     4. 🇸🇪 Suecia      1 pt
+     ...
+
+👤: avísame del ticket 123 solo cuando gane
+🤖: ✅ Listo, sigo tu ticket #123. Te aviso solo cuando sepas si ganaste o perdiste.
+
+👤: sigue el 555
+🤖: ✅ Sigo el ticket #555 (Portugal vs Croacia). Modo: todos los eventos (goles, tarjetas, etc.).
+
+👤: deja de seguirlo
+🤖: ❓ ¿Qué ticket querés dejar de seguir? Decime el número.
+
+👤: 555
+🤖: ✅ Dejé de seguir el ticket #555 para ti.
+```
+
+---
+
+## Configuración del modo de notificaciones
+
+| Modo | Significado | Costo de RU |
+|---|---|---|
+| `all_events` (default) | Cada gol, tarjeta, cambio importante | ~15 RU por evento × N chats |
+| `outcome_only` | Solo cuando el ticket gana/pierde/se decide | ~30 RU por evento (evalúa ticket) |
+
+Para cambiar entre modos:
+```
+/follow 555 outcome      # Cambiar a outcome_only
+/follow 555 all          # Volver a all_events
+```
+
+---
+
+## Estados del usuario
+
+El bot mantiene un mapa en memoria `userStates` con el estado de conversación:
+- `ESPERANDO_ALIAS`: cuando el usuario ejecutó `/cambiarnombre` sin args
+- `ESPERANDO_RESET`: cuando ejecutó `/reset`
+- `MODO_DEMO`: cuando no hay DB
+
+Estos estados se limpian automáticamente después de 5 minutos de inactividad.

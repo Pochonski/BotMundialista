@@ -843,15 +843,8 @@ async function handleCommand(chatId, text, userName, userId) {
               const homeTeam = await cache.getTeamByName(vsMatch[1].trim());
               const awayTeam = await cache.getTeamByName(vsMatch[2].trim());
               if (homeTeam && awayTeam) {
-                const [hid, aid] = [Number(homeTeam.id), Number(awayTeam.id)];
-                const allGames = await cache.getRecentWorldCupGames().catch(() => []);
-                if (allGames?.length) {
-                  const match = allGames.find(f =>
-                    (Number(f.homeCompetitor?.id) === hid && Number(f.awayCompetitor?.id) === aid) ||
-                    (Number(f.homeCompetitor?.id) === aid && Number(f.awayCompetitor?.id) === hid)
-                  );
-                  if (match) gameId = match.id;
-                }
+                const match = await cache.findGameByCompetitors(homeTeam.id, awayTeam.id);
+                if (match) gameId = match.id;
               }
             }
           } catch (e) {

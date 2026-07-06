@@ -133,18 +133,25 @@ async function getGameById(gameId) {
   });
 }
 
+async function findGameByCompetitors(compIdA, compIdB) {
+  const [a, b] = [Number(compIdA), Number(compIdB)];
+  return cached(`findGame:${a}:${b}`, ttl(60 * 60 * 1000), async () => {
+    const games = await cosmos.queryAll('games',
+      { query: 'SELECT c.id, c.homeCompetitor, c.awayCompetitor FROM c WHERE c.competitionId = @cid',
+        parameters: [{ name: '@cid', value: MUNDIAL_ID }] });
+    return games.find(g =>
+      (Number(g.homeCompetitor?.id) === a && Number(g.awayCompetitor?.id) === b) ||
+      (Number(g.homeCompetitor?.id) === b && Number(g.awayCompetitor?.id) === a)
+    ) || null;
+  });
+}
+
 async function getRecentWorldCupMatchesByTeam(teamId) {
-  return cached(`teamMatches:${teamId}`, ttl(5 * 60 * 1000), async () => {
-    let after = '';
-    const all = [];
-    for (let page = 0; page < 3; page++) {
-      const data = await scores365.getGamesByCompetition(MUNDIAL_ID, after || undefined, 1);
-      const games = (data.games || []).filter((g) => g.homeCompetitor?.id === teamId || g.awayCompetitor?.id === teamId);
-      all.push(...games);
-      if (!data.games || data.games.length === 0) break;
-      after = data.games[data.games.length - 1].id;
-    }
-    return all;
+  return cached(`teamMatches:${teamId}`, ttl(60 * 60 * 1000), async () => {
+    const tid = Number(teamId);
+    return cosmos.queryAll('games',
+      { query: 'SELECT * FROM c WHERE c.competitionId = @cid AND (c.homeCompetitor.id = @tid OR c.awayCompetitor.id = @tid)',
+        parameters: [{ name: '@cid', value: MUNDIAL_ID }, { name: '@tid', value: tid }] });
   });
 }
 
@@ -183,6 +190,7 @@ module.exports = {
   getTeamByName,
   getRecentWorldCupMatchesByTeam,
   getGameById,
+  findGameByCompetitors,
   searchAthletes,
   getAthleteById,
   clear,

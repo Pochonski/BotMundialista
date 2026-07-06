@@ -835,21 +835,27 @@ async function handleCommand(chatId, text, userName, userId) {
         const arg = text.replace(/^\/(alineacion|lineup|titulares)(?:@\w+)?\s+/i, '').trim();
         let gameId = arg;
         const isGameId = /^\d+$/.test(arg);
+
         if (!isGameId) {
-          const vsMatch = arg.match(/^(.+?)\s+(?:vs\.?|y|contra|c\/)\s+(.+)$/i);
-          if (vsMatch) {
-            const [homeTeam, awayTeam] = await Promise.all([
-              cache.getTeamByName(vsMatch[1].trim()),
-              cache.getTeamByName(vsMatch[2].trim())
-            ]);
-            if (homeTeam && awayTeam) {
-              const matches = await cache.getRecentWorldCupMatchesByTeam(homeTeam.id);
-              const match = matches.find(m =>
-                (m.homeCompetitor?.id == homeTeam.id && m.awayCompetitor?.id == awayTeam.id) ||
-                (m.homeCompetitor?.id == awayTeam.id && m.awayCompetitor?.id == homeTeam.id)
-              );
-              if (match) gameId = match.id;
+          try {
+            const vsMatch = arg.match(/^(.+?)\s+(?:vs\.?|y|contra|c\/)\s+(.+)$/i);
+            if (vsMatch) {
+              const homeTeam = await cache.getTeamByName(vsMatch[1].trim());
+              const awayTeam = await cache.getTeamByName(vsMatch[2].trim());
+              if (homeTeam && awayTeam) {
+                const [hid, aid] = [Number(homeTeam.id), Number(awayTeam.id)];
+                const allGames = await cache.getRecentWorldCupGames().catch(() => []);
+                if (allGames?.length) {
+                  const match = allGames.find(f =>
+                    (Number(f.homeCompetitor?.id) === hid && Number(f.awayCompetitor?.id) === aid) ||
+                    (Number(f.homeCompetitor?.id) === aid && Number(f.awayCompetitor?.id) === hid)
+                  );
+                  if (match) gameId = match.id;
+                }
+              }
             }
+          } catch (e) {
+            console.error('[alineacion] resolve error:', e.message);
           }
           if (!gameId || gameId === arg) {
             await sendMessage(chatId, `⚠️ No encontré el partido. Usá \`/alineacion <gameId>\` o \`/alineacion <eq1> vs <eq2>\`.`);

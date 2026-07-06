@@ -96,8 +96,8 @@ async function sendPhoto(chatId, photoUrl, caption = '', options = {}) {
 /**
  * Maneja comandos de Telegram (que empiezan con /)
  */
-async function handleCommand(chatId, command, userName, userId) {
-  const cmd = command.toLowerCase();
+async function handleCommand(chatId, text, userName, userId) {
+  const cmd = text.toLowerCase();
   const storedAlias = userStorage.getAlias(userId);
   const alias = storedAlias || userName || 'Usuario';
 

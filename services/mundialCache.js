@@ -124,6 +124,15 @@ async function getTeamByName(name) {
   });
 }
 
+async function getGameById(gameId) {
+  return cached(`gameById:${gameId}`, ttl(5 * 60 * 1000), async () => {
+    const game = await cosmos.getById('games', String(gameId), MUNDIAL_ID).catch(() => null);
+    if (game) return game;
+    const data = await scores365.getGameOverview(gameId);
+    return data?.game || null;
+  });
+}
+
 async function getRecentWorldCupMatchesByTeam(teamId) {
   return cached(`teamMatches:${teamId}`, ttl(5 * 60 * 1000), async () => {
     let after = '';
@@ -173,6 +182,7 @@ module.exports = {
   getTournamentTop,
   getTeamByName,
   getRecentWorldCupMatchesByTeam,
+  getGameById,
   searchAthletes,
   getAthleteById,
   clear,

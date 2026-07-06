@@ -832,7 +832,18 @@ async function handleCommand(chatId, text, userName, userId) {
       if (cmd.startsWith('/alineacion ') || cmd.startsWith('/lineup ') || cmd.startsWith('/titulares ')) {
         const arg = text.replace(/^\/(alineacion|lineup|titulares)(?:@\w+)?\s+/i, '').trim();
         const t = await mundialista365.getAlineacion(arg);
-        await sendMessage(chatId, t);
+        const game = await cache.getGameById(arg).catch(() => null);
+        const homeBadge = game?.homeCompetitor?.id ? getTeamBadgeUrl(game.homeCompetitor.id, game.homeCompetitor.imageVersion) : null;
+        const awayBadge = game?.awayCompetitor?.id ? getTeamBadgeUrl(game.awayCompetitor.id, game.awayCompetitor.imageVersion) : null;
+        if (homeBadge && awayBadge) {
+          await sendMediaGroup(chatId, [
+            { type: 'photo', media: homeBadge },
+            { type: 'photo', media: awayBadge }
+          ]);
+          await sendMessage(chatId, t);
+        } else {
+          await sendMessage(chatId, t);
+        }
         return true;
       }
 

@@ -93,6 +93,14 @@ async function sendPhoto(chatId, photoUrl, caption = '', options = {}) {
   });
 }
 
+async function sendMediaGroup(chatId, media, options = {}) {
+  return telegramRequest('sendMediaGroup', {
+    chat_id: chatId,
+    media,
+    ...options
+  });
+}
+
 /**
  * Maneja comandos de Telegram (que empiezan con /)
  */
@@ -366,12 +374,38 @@ async function handleCommand(chatId, text, userName, userId) {
     default:
       // Comandos con argumentos: /resultado, /analizar, /info, /seguir
       if (cmd.startsWith('/resultado ')) {
-        const equipo = text.replace('/resultado ', '').replace('/Resultado ', '');
+        const equipoText = text.replace('/resultado ', '').replace('/Resultado ', '');
+        const vsMatch = equipoText.match(/^(.+?)\s+(?:vs\.?|y|contra|c\/)\s+(.+)$/i);
+        let photoUrls = null;
+        if (vsMatch) {
+          const [_, homeName, awayName] = vsMatch;
+          const [homeTeam, awayTeam] = await Promise.all([
+            cache.getTeamByName(homeName.trim()),
+            cache.getTeamByName(awayName.trim())
+          ]);
+          const homeBadge = homeTeam?.id ? getTeamBadgeUrl(homeTeam.id, homeTeam.imageVersion) : null;
+          const awayBadge = awayTeam?.id ? getTeamBadgeUrl(awayTeam.id, awayTeam.imageVersion) : null;
+          if (homeBadge && awayBadge) photoUrls = [homeBadge, awayBadge];
+          else if (homeBadge) photoUrls = [homeBadge];
+          else if (awayBadge) photoUrls = [awayBadge];
+        } else {
+          const team = await cache.getTeamByName(equipoText.trim());
+          if (team?.id) photoUrls = [getTeamBadgeUrl(team.id, team.imageVersion)];
+        }
         const msgRes = {
           from: chatId.toString(),
-          body: `como quedo ${equipo}`,
+          body: `como quedo ${equipoText}`,
           hasMedia: false,
-          reply: async (t) => await sendMessage(chatId, t)
+          reply: async (t) => {
+            if (photoUrls && photoUrls.length === 2) {
+              await sendMediaGroup(chatId, photoUrls.map(u => ({ type: 'photo', media: u })));
+              await sendMessage(chatId, t);
+            } else if (photoUrls && photoUrls.length === 1) {
+              await sendPhoto(chatId, photoUrls[0], t);
+            } else {
+              await sendMessage(chatId, t);
+            }
+          }
         };
         await messageHandler(null, msgRes);
         return true;
@@ -449,11 +483,19 @@ async function handleCommand(chatId, text, userName, userId) {
       }
       if (cmd.startsWith('/racha ')) {
         const equipo = text.replace(/^\/racha(?:@\w+)? /i, '').trim();
+        const team = await cache.getTeamByName(equipo);
+        const photoUrl = team?.id ? getTeamBadgeUrl(team.id, team.imageVersion) : null;
         const msgSt = {
           from: chatId.toString(),
           body: `cual es la racha de ${equipo}`,
           hasMedia: false,
-          reply: async (t) => await sendMessage(chatId, t)
+          reply: async (t) => {
+            if (photoUrl) {
+              await sendPhoto(chatId, photoUrl, t);
+            } else {
+              await sendMessage(chatId, t);
+            }
+          }
         };
         await messageHandler(null, msgSt);
         return true;
@@ -500,6 +542,10 @@ async function handleCommand(chatId, text, userName, userId) {
             msg += `  ${m.homeTeam} vs ${m.awayTeam}\n`;
             msg += `  ${isHome ? '🟢 LOCAL' : '✈️ VISITANTE'} · 🏆 ${tournament}\n\n`;
           });
+          const badgeUrl = team?.id ? getTeamBadgeUrl(team.id, team.imageVersion) : null;
+          if (badgeUrl) {
+            await sendPhoto(chatId, badgeUrl, `🏆 ${team.name}`);
+          }
           await sendMessage(chatId, msg.trim());
         } catch (e) {
           await sendMessage(chatId, '⚠️ No pude obtener próximos partidos.');
@@ -636,6 +682,24 @@ async function handleCommand(chatId, text, userName, userId) {
           reply: async (t) => await sendMessage(chatId, t)
         };
         await messageHandler(null, msgGrupo);
+        try {
+          const standings = await cache.getWorldCupStandings();
+          const standing = standings.find(s => {
+            const letra = s.name?.match(/Group\s+([A-L])/i)?.[1]?.toUpperCase();
+            return letra === grupo;
+          });
+          if (standing?.teams?.length > 0) {
+            const media = [];
+            for (const t of standing.teams) {
+              const team = await cache.getTeamByName(t.name);
+              if (team?.id) {
+                const url = getTeamBadgeUrl(team.id, team.imageVersion);
+                if (url) media.push({ type: 'photo', media: url });
+              }
+            }
+            if (media.length > 0) await sendMediaGroup(chatId, media);
+          }
+        } catch (e) { /* ignore badge errors */ }
         return true;
       }
 

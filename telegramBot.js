@@ -137,7 +137,8 @@ async function handleCommand(chatId, text, userName, userId) {
         `  /historial - Campeones 1930-2022\n` +
         `  /historial 2022 - Final de ese año\n` +
         `  /historial brasil - Ediciones del equipo\n` +
-        `  /goleadores - Top goleadores\n\n` +
+        `  /goleadores - Top goleadores (con foto)\n` +
+        `  /jugador <nombre> - Foto + info del jugador\n\n` +
         `💡 También podés escribir en lenguaje natural:\n` +
         `  "¿Cómo quedó Brasil?"\n` +
         `  "Tabla del grupo C"\n` +

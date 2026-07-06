@@ -1,7 +1,7 @@
 // BotMundialista - Telegram Bot (usando API directa)
 require('dotenv').config();
 const http = require('http');
-const fetch = require('node-fetch');
+const https = require('https');
 const messageHandler = require('./handlers/messageHandler');
 const followHandler = require('./handlers/followHandler');
 const conversationalHandler = require('./handlers/conversationalHandler');
@@ -59,16 +59,33 @@ server.listen(PORT, () => {
 });
 
 /**
- * Hace una solicitud a la API de Telegram
+ * Hace una solicitud a la API de Telegram (https nativo, sin node-fetch)
  */
 async function telegramRequest(method, params = {}) {
-  const url = `${API_URL}/${method}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params)
+  const url = new URL(`${API_URL}/${method}`);
+  const body = JSON.stringify(params);
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(new Error(`Telegram API (${method}): respuesta no-JSON: ${data.substring(0, 200)}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
   });
-  return response.json();
 }
 
 /**
@@ -1160,7 +1177,7 @@ async function pollingCycle() {
     await processUpdates(updates);
     maybeHeartbeat();
   } catch (error) {
-    console.error('Error en polling:', error.message);
+    console.error('Error en polling:', error.message, error.stack?.substring(0, 800));
   }
 
   // Continuar el loop
@@ -1200,14 +1217,16 @@ async function init() {
     if (updates.ok && updates.result.length > 0) {
       console.log(`📬 Procesando ${updates.result.length} updates pendientes del deploy...`);
       await processUpdates(updates);
+    } else {
+      console.log(`📬 Sin updates pendientes (ok: ${updates.ok}, count: ${updates.result?.length || 0})`);
     }
   } catch (error) {
-    console.error('Error limpiando updates:', error.message);
+    console.error('Error en init (getUpdates pendientes):', error.message, error.stack?.substring(0, 800));
   }
 
   // Iniciar polling
   isRunning = true;
-  console.log('✅ BotMundialista Telegram listo!');
+  console.log(`✅ BotMundialista Telegram listo! offset=${offset}`);
   console.log(`📱 Token: ${TELEGRAM_TOKEN?.substring(0, 10)}...`);
   console.log('');
   console.log('Comandos disponibles:');

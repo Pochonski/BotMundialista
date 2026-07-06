@@ -8,7 +8,7 @@ const conversationalHandler = require('./handlers/conversationalHandler');
 const mundialista365 = require('./handlers/mundialista365Handler');
 const mundialistaStats = require('./handlers/mundialistaStatsHandler');
 const cache = require('./services/mundialCache');
-const { getAthletePhotoUrl, getCountryFlagUrl, getTeamBadgeUrl } = require('./services/images');
+const { getAthletePhotoUrl, getAthleteThumbUrl, getCountryFlagUrl, getTeamBadgeUrl } = require('./services/images');
 const { pool, testConnection } = require('./database/connection');
 const userStorage = require('./utils/userStorage');
 const telegramNotifier = require('./services/telegramNotifier');
@@ -817,32 +817,82 @@ async function handleCommand(chatId, text, userName, userId) {
         return true;
       }
 
-      // /alineacion <gameId> — titulares y formación
+      // /alineacion [gameId | eq1 vs eq2] — titulares y formación + fotos de jugadores
       if (cmd === '/alineacion' || cmd === '/alineacion@botmundialistabot' ||
           cmd === '/lineup' || cmd === '/lineup@botmundialistabot' ||
           cmd === '/titulares' || cmd === '/titulares@botmundialistabot') {
         await sendMessage(chatId,
           `👥 *ALINEACIONES*\n\n` +
-          `Uso: \`/alineacion <gameId>\`\n\n` +
-          `Ejemplo: \`/alineacion 4749268\`\n\n` +
+          `Uso: \`/alineacion <gameId>\` o \`/alineacion <eq1> vs <eq2>\`\n\n` +
+          `Ejemplos:\n` +
+          `• /alineacion 4749268\n` +
+          `• /alineacion brasil vs argentina\n\n` +
           `💡 Las alineaciones se publican cerca del kickoff.`
         );
         return true;
       }
       if (cmd.startsWith('/alineacion ') || cmd.startsWith('/lineup ') || cmd.startsWith('/titulares ')) {
         const arg = text.replace(/^\/(alineacion|lineup|titulares)(?:@\w+)?\s+/i, '').trim();
-        const t = await mundialista365.getAlineacion(arg);
-        const game = await cache.getGameById(arg).catch(() => null);
-        const homeBadge = game?.homeCompetitor?.id ? getTeamBadgeUrl(game.homeCompetitor.id, game.homeCompetitor.imageVersion) : null;
-        const awayBadge = game?.awayCompetitor?.id ? getTeamBadgeUrl(game.awayCompetitor.id, game.awayCompetitor.imageVersion) : null;
-        if (homeBadge && awayBadge) {
-          await sendMediaGroup(chatId, [
-            { type: 'photo', media: homeBadge },
-            { type: 'photo', media: awayBadge }
-          ]);
-          await sendMessage(chatId, t);
-        } else {
-          await sendMessage(chatId, t);
+        let gameId = arg;
+        const isGameId = /^\d+$/.test(arg);
+        if (!isGameId) {
+          const vsMatch = arg.match(/^(.+?)\s+(?:vs\.?|y|contra|c\/)\s+(.+)$/i);
+          if (vsMatch) {
+            const [homeTeam, awayTeam] = await Promise.all([
+              cache.getTeamByName(vsMatch[1].trim()),
+              cache.getTeamByName(vsMatch[2].trim())
+            ]);
+            if (homeTeam && awayTeam) {
+              const matches = await cache.getRecentWorldCupMatchesByTeam(homeTeam.id);
+              const match = matches.find(m =>
+                (m.homeCompetitor?.id == homeTeam.id && m.awayCompetitor?.id == awayTeam.id) ||
+                (m.homeCompetitor?.id == awayTeam.id && m.awayCompetitor?.id == homeTeam.id)
+              );
+              if (match) gameId = match.id;
+            }
+          }
+          if (!gameId || gameId === arg) {
+            await sendMessage(chatId, `⚠️ No encontré el partido. Usá \`/alineacion <gameId>\` o \`/alineacion <eq1> vs <eq2>\`.`);
+            return true;
+          }
+        }
+        const t = await mundialista365.getAlineacion(gameId);
+        const overview = await cache.getMatchOverview(gameId).catch(() => null);
+        const gameData = overview?.game || null;
+
+        const homeComp = gameData?.homeCompetitor || null;
+        const awayComp = gameData?.awayCompetitor || null;
+        const homeBadge = homeComp?.id ? getTeamBadgeUrl(homeComp.id, homeComp.imageVersion) : null;
+        const awayBadge = awayComp?.id ? getTeamBadgeUrl(awayComp.id, awayComp.imageVersion) : null;
+        const badges = [];
+        if (homeBadge) badges.push({ type: 'photo', media: homeBadge });
+        if (awayBadge) badges.push({ type: 'photo', media: awayBadge });
+        if (badges.length > 0) await sendMediaGroup(chatId, badges);
+        await sendMessage(chatId, t);
+
+        const sides = [
+          { comp: homeComp, label: 'home' },
+          { comp: awayComp, label: 'away' }
+        ];
+        for (const { comp } of sides) {
+          if (!comp?.lineups?.members?.length) continue;
+          const byPos = {};
+          for (const m of comp.lineups.members) {
+            const pos = m.position?.name || 'Otros';
+            if (!byPos[pos]) byPos[pos] = [];
+            byPos[pos].push(m);
+          }
+          for (const [pos, members] of Object.entries(byPos)) {
+            if (!members.length) continue;
+            const media = members.map(m => ({
+              type: 'photo',
+              media: getAthleteThumbUrl(m.athleteId, m.imageVersion),
+              caption: m.shortName || m.name
+            }));
+            for (let i = 0; i < media.length; i += 10) {
+              await sendMediaGroup(chatId, media.slice(i, i + 10));
+            }
+          }
         }
         return true;
       }

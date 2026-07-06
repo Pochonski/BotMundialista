@@ -1,115 +1,80 @@
-// Handler de tablas de posiciones
-const footballApi = require('../services/footballApi');
+// Handler de tablas de posiciones - Mundial 2026
+const cache = require('../services/mundialCache');
 const { formatTabla, formatGroupTable } = require('../utils/formatters');
-const { LIGAS } = require('../utils/constants');
 
-/**
- * Obtiene tabla de posiciones de una liga
- * Acepta: string ("premier", "la liga") u objeto {id, nombre}
- */
+const LIGAS_SOPORTADAS = {
+  'mundial': { id: 5930, nombre: 'Mundial 2026' },
+  'mundial 2026': { id: 5930, nombre: 'Mundial 2026' },
+  'world cup': { id: 5930, nombre: 'Mundial 2026' },
+  'wc': { id: 5930, nombre: 'Mundial 2026' },
+  'copa del mundo': { id: 5930, nombre: 'Mundial 2026' },
+};
+
+const MENSAJE_NO_SOPORTADO = (liga) => `⚠️ Solo soporto tablas del Mundial 2026 por ahora. La liga "${liga}" no está disponible en mi fuente actual.`;
+
 async function getTabla(liga) {
   try {
-    let ligaId;
-    let ligaNombre;
-
+    let ligaKey, ligaNombre;
     if (typeof liga === 'string') {
-      // Mapeo de nombres comunes a IDs
       const lower = liga.toLowerCase().trim();
-      // Primero intentar con getLeagueId de la API service
-      const apiId = footballApi.getLeagueId(lower);
-      if (apiId) {
-        ligaId = apiId;
-        ligaNombre = capitalizeFirst(liga);
+      const alias = LIGAS_SOPORTADAS[lower];
+      if (alias) {
+        ligaKey = alias.id;
+        ligaNombre = alias.nombre;
       } else {
-        // Mapeo de fallback para variantes coloquiales
-        const fallback = matchLeagueName(lower);
-        if (!fallback) {
-          return `⚠️ No reconocí la liga "${liga}". Prueba: "premier", "la liga", "bundesliga", "champions", "serie a", "libertadores".`;
-        }
-        ligaId = fallback.id;
-        ligaNombre = fallback.nombre;
+        return MENSAJE_NO_SOPORTADO(liga);
       }
     } else if (liga && typeof liga === 'object') {
-      ligaId = liga.id;
+      ligaKey = liga.id;
       ligaNombre = liga.nombre;
     }
-
-    if (!ligaId) {
-      return `⚠️ Liga no reconocida. Prueba: "premier", "la liga", "bundesliga", "champions".`;
+    if (!ligaKey) {
+      return `⚠️ Liga no reconocida. Prueba: "mundial", "world cup", "wc", "copa del mundo".`;
     }
-
-    // Si es Mundial, usar tabla general
-    if (ligaId === LIGAS.MUNDIAL.id) {
+    if (ligaKey === LIGAS_SOPORTADAS.mundial.id) {
       return await getTablaMundial();
     }
-
-    const data = await footballApi.getStandings(ligaId);
-
-    if (!data || data.length === 0) {
-      return `⚠️ No hay tabla disponible para ${ligaNombre}.`;
-    }
-
-    return formatTabla(data, ligaNombre);
+    return MENSAJE_NO_SOPORTADO(ligaNombre || ligaKey);
   } catch (error) {
     console.error('Error getTabla:', error);
     return `⚠️ No pude obtener la tabla.`;
   }
 }
 
-/**
- * Fallback: mapea nombres coloquiales de ligas a objetos {id, nombre}
- */
-function matchLeagueName(name) {
-  const map = {
-    'premier': { id: 47, nombre: 'Premier League' },
-    'premier league': { id: 47, nombre: 'Premier League' },
-    'inglaterra': { id: 47, nombre: 'Premier League' },
-    'laliga': { id: 87, nombre: 'La Liga' },
-    'la liga': { id: 87, nombre: 'La Liga' },
-    'liga': { id: 87, nombre: 'La Liga' },
-    'españa': { id: 87, nombre: 'La Liga' },
-    'espanol': { id: 87, nombre: 'La Liga' },
-    'serie a': { id: 55, nombre: 'Serie A' },
-    'italia': { id: 55, nombre: 'Serie A' },
-    'bundesliga': { id: 54, nombre: 'Bundesliga' },
-    'alemania': { id: 54, nombre: 'Bundesliga' },
-    'ligue 1': { id: 53, nombre: 'Ligue 1' },
-    'francia': { id: 53, nombre: 'Ligue 1' },
-    'champions': { id: 42, nombre: 'Champions League' },
-    'champions league': { id: 42, nombre: 'Champions League' },
-    'libertadores': { id: 134, nombre: 'Copa Libertadores' },
-    'europa league': { id: 73, nombre: 'Europa League' },
-    'copa america': { id: 13, nombre: 'Copa América' },
-    'mundial': { id: 77, nombre: 'Copa Mundial' },
-  };
-  return map[name] || null;
-}
-
-function capitalizeFirst(s) {
-  if (!s) return s;
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-/**
- * Obtiene la tabla del Mundial (todos los grupos)
- */
 async function getTablaMundial() {
   try {
-    const grupos = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'];
-
-    let msg = `🏆 *TABLA MUNDIAL 2026*\n\n`;
-
-    for (const grupo of grupos) {
-      const leagueId = footballApi.MUNDIAL_GRUPOS[grupo];
-      if (!leagueId) continue;
-
-      const table = await footballApi.getWorldCupGroupTable(leagueId);
-
-      if (table && table.length > 0) {
-        msg += formatGroupTable(table, grupo) + '\n\n';
-      }
+    const standings = await cache.getWorldCupStandings();
+    if (!standings || standings.length === 0) {
+      return `⚠️ No hay datos de tabla del Mundial disponibles.`;
     }
-
+    const gruposMap = {};
+    for (const standing of standings) {
+      const grupoLetra = standing.name?.match(/Group\s+([A-L])/i)?.[1]?.toUpperCase();
+      if (!grupoLetra) continue;
+      const equipos = (standing.teams || []).map((t) => ({
+        rank: t.idx,
+        name: t.name,
+        shortName: t.shortName,
+        teamId: t.id,
+        played: t.played,
+        wins: t.wins,
+        draws: t.draws,
+        losses: t.losses,
+        goalsFor: parseInt((t.scoresStr || '0-0').split('-')[0]) || 0,
+        goalsAgainst: parseInt((t.scoresStr || '0-0').split('-')[1]) || 0,
+        goalDiff: t.goalConDiff,
+        points: t.pts,
+      })).sort((a, b) => (a.rank || 99) - (b.rank || 99));
+      gruposMap[grupoLetra] = equipos;
+    }
+    const grupos = Object.keys(gruposMap).sort();
+    if (grupos.length === 0) {
+      return `⚠️ No encontré datos por grupo en la respuesta.`;
+    }
+    let msg = `🏆 *TABLA MUNDIAL 2026*\n\n`;
+    for (const g of grupos) {
+      msg += formatGroupTable(gruposMap[g], g) + '\n\n';
+    }
     return msg.trim();
   } catch (error) {
     console.error('Error getTablaMundial:', error);
@@ -117,24 +82,40 @@ async function getTablaMundial() {
   }
 }
 
-/**
- * Obtiene tabla de un grupo específico del Mundial
- */
 async function getTablaGrupoMundial(grupo) {
   try {
     const grupoUpper = grupo.toUpperCase();
-    const leagueId = footballApi.MUNDIAL_GRUPOS[grupoUpper];
-    if (!leagueId) {
-      return `⚠️ Grupo ${grupo} no encontrado.`;
+    if (!/^[A-L]$/.test(grupoUpper)) {
+      return `⚠️ Grupo inválido. Usa: A, B, C, D, E, F, G, H, I, J, K, L.`;
     }
-
-    const table = await footballApi.getWorldCupGroupTable(leagueId);
-
-    if (!table || table.length === 0) {
-      return `⚠️ No hay datos para el Grupo ${grupo}.`;
+    const standings = await cache.getWorldCupStandings();
+    if (!standings || standings.length === 0) {
+      return `⚠️ No hay datos de tabla del Mundial disponibles.`;
     }
-
-    return formatGroupTable(table, grupoUpper);
+    for (const standing of standings) {
+      const grupoLetra = standing.name?.match(/Group\s+([A-L])/i)?.[1]?.toUpperCase();
+      if (grupoLetra === grupoUpper) {
+        const equipos = (standing.teams || []).map((t) => ({
+          rank: t.idx,
+          name: t.name,
+          shortName: t.shortName,
+          teamId: t.id,
+          played: t.played,
+          wins: t.wins,
+          draws: t.draws,
+          losses: t.losses,
+          goalsFor: parseInt((t.scoresStr || '0-0').split('-')[0]) || 0,
+          goalsAgainst: parseInt((t.scoresStr || '0-0').split('-')[1]) || 0,
+          goalDiff: t.goalConDiff,
+          points: t.pts,
+        })).sort((a, b) => (a.rank || 99) - (b.rank || 99));
+        if (equipos.length === 0) {
+          return `⚠️ No hay datos para el Grupo ${grupoUpper}.`;
+        }
+        return formatGroupTable(equipos, grupoUpper);
+      }
+    }
+    return `⚠️ Grupo ${grupoUpper} no encontrado.`;
   } catch (error) {
     console.error('Error getTablaGrupoMundial:', error);
     return `⚠️ No pude obtener la tabla del Grupo ${grupo}.`;

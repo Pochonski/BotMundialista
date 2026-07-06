@@ -5,7 +5,8 @@ const fetch = require('node-fetch');
 const messageHandler = require('./handlers/messageHandler');
 const followHandler = require('./handlers/followHandler');
 const conversationalHandler = require('./handlers/conversationalHandler');
-const footballApi = require('./services/footballApi');
+const mundialista365 = require('./handlers/mundialista365Handler');
+const cache = require('./services/mundialCache');
 const { pool, testConnection } = require('./database/connection');
 const userStorage = require('./utils/userStorage');
 const telegramNotifier = require('./services/telegramNotifier');
@@ -94,17 +95,27 @@ async function handleCommand(chatId, command, userName, userId) {
       await sendMessage(chatId,
         `🏆 *BotMundialista* - Asistente del Mundial 2026\n\n` +
         `¡Hola ${alias}! 👋 Soy tu asistente de fútbol.\n\n` +
-        `📱 *Comandos disponibles:*\n` +
-        `  /start - Iniciar el bot\n` +
-        `  /help - Ver comandos disponibles\n` +
+        `📱 *Comandos básicos:*\n` +
+        `  /start · /help - Iniciar / ver ayuda\n` +
         `  /partidos - Partidos de hoy\n` +
+        `  /manana - Partidos de mañana\n` +
         `  /tabla - Tabla del Mundial\n` +
-        `  /resultado [equipo] - Resultado de un equipo _(ej: /resultado brasil)_\n` +
-        `  /analizar [eq1] vs [eq2] - Analizar partido _(ej: /analizar brasil vs argentina)_\n` +
-        `  /info [equipo] - Información de equipo\n` +
-        `  /seguir [equipo] - Seguir a un equipo\n` +
         `  /grupo [A-L] - Tabla de grupo _(ej: /grupo A)_\n` +
-        `  /cambiarusuario [nombre] - Cambiar tu nombre\n\n` +
+        `  /resultado [equipo] - Resultado _(ej: /resultado brasil)_\n` +
+        `  /analizar [eq1] vs [eq2] - Análisis _(ej: /analizar brasil vs argentina)_\n` +
+        `  /info [equipo] · /seguir [equipo] - Info / seguir equipo\n` +
+        `  /cambiarusuario [nombre] - Cambiar apodo\n\n` +
+        `🎯 *Tips y tendencias (365scores):*\n` +
+        `  /tip [eq1] vs [eq2] - Tip con confianza _(ej: /tip brasil vs argentina)_\n` +
+        `  /tendencias - Top 10 tendencias del Mundial\n` +
+        `  /tendencias [eq1] vs [eq2] - Trends de un partido _(ej: /tendencias brasil vs argentina)_\n` +
+        `  /predicciones <gameId> - Predicciones de la comunidad\n\n` +
+        `📡 *Stats en vivo (365scores):*\n` +
+        `  /live - Partidos en vivo ahora\n` +
+        `  /stats-vivo <gameId> - Stats del último snapshot\n` +
+        `  /alineacion <gameId> - Titulares y formación\n` +
+        `  /previa <gameId> - Pre-match stats\n` +
+        `  /h2h <gameId> - Historial entre los equipos\n\n` +
         `💡 También podés escribir en lenguaje natural:\n` +
         `  "¿Cómo quedó Brasil?"\n` +
         `  "Tabla del grupo C"\n` +
@@ -118,15 +129,29 @@ async function handleCommand(chatId, command, userName, userId) {
         `📖 *COMANDOS - MUNDIAL 2026*\n\n` +
         `⚽ *Partidos:*\n` +
         `  /partidos - Partidos de hoy\n` +
+        `  /manana - Partidos de mañana\n` +
         `  /resultado [equipo] - Último resultado _(ej: /resultado brasil)_\n` +
-        `  /analizar [eq1] vs [eq2] - Análisis _(ej: /analizar brasil vs argentina)_\n\n` +
+        `  /analizar [eq1] vs [eq2] - Análisis _(ej: /analizar brasil vs argentina)_\n` +
+        `  /proximos [equipo] · /siguiente [equipo] - Próximos partidos\n\n` +
         `🏆 *Tablas:*\n` +
         `  /tabla - Tabla del Mundial\n` +
         `  /grupo [A-L] - Grupo específico _(ej: /grupo A)_\n\n` +
         `👥 *Equipos:*\n` +
         `  /info [equipo] - Info del equipo\n` +
         `  /seguir [equipo] - Seguir equipo\n` +
-        `  /cambiarusuario [nombre] - Cambiar tu apodo\n\n` +
+        `  /cambiarusuario [nombre] - Cambiar apodo\n` +
+        `  /yo · /reset - Perfil / borrar datos\n\n` +
+        `🎯 *Tips y tendencias:*\n` +
+        `  /tip [eq1] vs [eq2] - Tip con % de confianza\n` +
+        `  /tendencias - Top 10 Mundial\n` +
+        `  /tendencias [eq1] vs [eq2] - Trends de un partido\n` +
+        `  /predicciones <gameId> - Predicciones comunidad\n\n` +
+        `📡 *Stats en vivo:*\n` +
+        `  /live - En vivo ahora\n` +
+        `  /stats-vivo <gameId> - Stats del último snapshot\n` +
+        `  /alineacion <gameId> - Titulares y formación\n` +
+        `  /previa <gameId> - Pre-match stats\n` +
+        `  /h2h <gameId> - Historial entre los equipos\n\n` +
         `💡 _También entendés: "Cómo le fue a X", "Brasil vs Francia", "Estadísticas de X", "Tabla de la Premier"…_`
       );
       return true;
@@ -198,18 +223,15 @@ async function handleCommand(chatId, command, userName, userId) {
       const tomorrow = new Date(Date.now() + 86400000)
         .toISOString().split('T')[0].replace(/-/g, '');
       try {
-        const matches = await footballApi.getMatchesByDate(tomorrow);
-        const mundialIds = new Set(Object.values(footballApi.MUNDIAL_GRUPOS || {}));
-        const mundialMatches = (matches || []).filter(m => mundialIds.has(Number(m.leagueId)));
-        if (mundialMatches.length === 0) {
+        const matches = await cache.getWorldCupGames({ date: tomorrow });
+        if (!matches || matches.length === 0) {
           await sendMessage(chatId,
             `📅 *MUNDIAL — MAÑANA*\n\n🟢 No hay partidos del Mundial programados para mañana.`);
           return true;
         }
         const porGrupo = {};
         mundialMatches.forEach(m => {
-          const letra = Object.entries(footballApi.MUNDIAL_GRUPOS)
-            .find(([_, id]) => Number(id) === Number(m.leagueId))?.[0] || '?';
+          const letra = (m.stageName || '').match(/Group\s+([A-L])/i)?.[1]?.toUpperCase() || '?';
           if (!porGrupo[letra]) porGrupo[letra] = [];
           porGrupo[letra].push(m);
         });
@@ -418,12 +440,17 @@ async function handleCommand(chatId, command, userName, userId) {
         const limit = cmd.startsWith('/siguiente') ? 1 : 5;
         const equipo = text.replace(/^\/(proximos|siguiente)(?:@\w+)? /i, '').trim();
         try {
-          const team = await footballApi.buscarEquipoDinamico(equipo);
+          const team = await cache.getTeamByName(equipo);
           if (!team) {
             await sendMessage(chatId, `⚠️ No encontré al equipo "${equipo}".`);
             return true;
           }
-          const upcoming = await footballApi.getUpcomingMatches(team.id, limit);
+          const allMatches = await cache.getRecentWorldCupMatchesByTeam(team.id);
+          const now = Date.now();
+          const upcoming = allMatches
+            .filter((m) => m.homeCompetitor?.score == null && new Date(m.startTime || m.date || 0).getTime() >= now - 86400000)
+            .sort((a, b) => new Date(a.startTime || a.date) - new Date(b.startTime || b.date))
+            .slice(0, limit);
           if (!upcoming || upcoming.length === 0) {
             await sendMessage(chatId, `📅 No hay partidos próximos para *${team.name}*.`);
             return true;
@@ -500,12 +527,17 @@ async function handleCommand(chatId, command, userName, userId) {
       if (cmd.startsWith('/dondever ')) {
         const equipo = text.replace(/^\/dondever(?:@\w+)? /i, '').trim();
         try {
-          const team = await footballApi.buscarEquipoDinamico(equipo);
+          const team = await cache.getTeamByName(equipo);
           if (!team) {
             await sendMessage(chatId, `⚠️ No encontré al equipo "${equipo}".`);
             return true;
           }
-          const upcoming = await footballApi.getUpcomingMatches(team.id, 1);
+          const allMatches = await cache.getRecentWorldCupMatchesByTeam(team.id);
+          const now = Date.now();
+          const upcoming = allMatches
+            .filter((m) => m.homeCompetitor?.score == null && new Date(m.startTime || m.date || 0).getTime() >= now - 86400000)
+            .sort((a, b) => new Date(a.startTime || a.date) - new Date(b.startTime || b.date))
+            .slice(0, 1);
           if (!upcoming || upcoming.length === 0) {
             await sendMessage(chatId, `📺 No hay partidos próximos de *${team.name}* para mostrar sede.`);
             return true;
@@ -557,6 +589,172 @@ async function handleCommand(chatId, command, userName, userId) {
           reply: async (t) => await sendMessage(chatId, t)
         };
         await messageHandler(null, msgGrupo);
+        return true;
+      }
+
+      // ===========================================================
+      // FASE 2: Tips y Tendencias (365scores via Cosmos)
+      // ===========================================================
+
+      // /live — partidos en vivo ahora
+      if (cmd === '/live' || cmd === '/live@botmundialistabot' || cmd === '/envivo' || cmd === '/envivo@botmundialistabot') {
+        const text = await mundialista365.getLiveGames();
+        await sendMessage(chatId, text);
+        return true;
+      }
+
+      // /tip — puede ser con args (eq1 vs eq2) o sin args (prompt de uso)
+      if (cmd === '/tip' || cmd === '/tip@botmundialistabot') {
+        await sendMessage(chatId,
+          `🎯 *TIP DE PARTIDO*\n\n` +
+          `Uso: \`/tip [equipo1] vs [equipo2]\`\n\n` +
+          `Ejemplos:\n` +
+          `• /tip brasil vs argentina\n` +
+          `• /tip francia vs alemania\n\n` +
+          `💡 El tip se calcula con base en las tendencias de los partidos (365scores). ` +
+          `Para más detalles: \`/tendencias brasil vs argentina\` o \`/stats-vivo <gameId>\` (si lo conocés).`
+        );
+        return true;
+      }
+      if (cmd.startsWith('/tip ')) {
+        const args = text.replace(/^\/tip(?:@\w+)?\s+/i, '').trim();
+        const m = args.match(/^(.+?)\s+(?:vs\.?|y|contra|c\/)\s+(.+)$/i);
+        if (!m) {
+          await sendMessage(chatId,
+            `⚠️ Formato: \`/tip [equipo1] vs [equipo2]\`\n\n` +
+            `Ejemplo: \`/tip brasil vs argentina\``
+          );
+          return true;
+        }
+        const home = m[1].trim();
+        const away = m[2].trim();
+        const t = await mundialista365.getTipPartido(home, away);
+        await sendMessage(chatId, t);
+        return true;
+      }
+
+      // /tendencias — top Mundial o por equipos (eq1 vs eq2)
+      if (cmd === '/tendencias' || cmd === '/tendencias@botmundialistabot' || cmd === '/trends' || cmd === '/trends@botmundialistabot') {
+        const t = await mundialista365.getTendencias('competition', null, 10);
+        await sendMessage(chatId, t);
+        return true;
+      }
+      if (cmd.startsWith('/tendencias ') || cmd.startsWith('/trends ')) {
+        const arg = text.replace(/^\/(tendencias|trends)(?:@\w+)?\s+/i, '').trim();
+        if (!arg) {
+          const t = await mundialista365.getTendencias('competition', null, 10);
+          await sendMessage(chatId, t);
+          return true;
+        }
+        // Modo: "eq1 vs eq2" → resuelve partido y devuelve sus trends
+        const m = arg.match(/^(.+?)\s+(?:vs\.?|y|contra|c\/)\s+(.+)$/i);
+        if (m) {
+          const t = await mundialista365.getTendenciasByTeams(m[1].trim(), m[2].trim(), 10);
+          await sendMessage(chatId, t);
+          return true;
+        }
+        // Fallback: usage
+        await sendMessage(chatId,
+          `📊 *TENDENCIAS*\n\n` +
+          `Uso:\n` +
+          `  \`/tendencias\` — Top Mundial\n` +
+          `  \`/tendencias brasil vs argentina\` — Trends del partido\n\n` +
+          `💡 Para stats en vivo de un partido, usá los nombres con /tip, /stats-vivo o /alineacion.`
+        );
+        return true;
+      }
+
+      // /predicciones <gameId>
+      if (cmd === '/predicciones' || cmd === '/predicciones@botmundialistabot' || cmd === '/prediccion' || cmd === '/prediccion@botmundialistabot') {
+        await sendMessage(chatId,
+          `🗳️ *PREDICCIONES DE LA COMUNIDAD*\n\n` +
+          `Uso: \`/predicciones <gameId>\`\n\n` +
+          `Ejemplo: \`/predicciones 4749268\`\n\n` +
+          `💡 Para buscar el gameId, usá \`/tip brasil vs argentina\` o \`/live\`.`
+        );
+        return true;
+      }
+      if (cmd.startsWith('/predicciones ') || cmd.startsWith('/prediccion ')) {
+        const arg = text.replace(/^\/(predicciones|prediccion)(?:@\w+)?\s+/i, '').trim();
+        const t = await mundialista365.getPredicciones(arg);
+        await sendMessage(chatId, t);
+        return true;
+      }
+
+      // ===========================================================
+      // FASE 4: Stats en vivo y alineaciones (365scores via Cosmos)
+      // ===========================================================
+
+      // /stats-vivo <gameId> — último snapshot de game_snapshots
+      if (cmd === '/stats-vivo' || cmd === '/stats-vivo@botmundialistabot' ||
+          cmd === '/statsvivo' || cmd === '/statsvivo@botmundialistabot' ||
+          cmd === '/live-stats' || cmd === '/live-stats@botmundialistabot') {
+        await sendMessage(chatId,
+          `📊 *STATS EN VIVO*\n\n` +
+          `Uso: \`/stats-vivo <gameId>\`\n\n` +
+          `Ejemplo: \`/stats-vivo 4749268\`\n\n` +
+          `💡 Para encontrar el gameId:\n` +
+          `• \`/live\` para partidos en vivo\n` +
+          `• \`/tip brasil vs argentina\` para un partido próximo`
+        );
+        return true;
+      }
+      if (cmd.startsWith('/stats-vivo ') || cmd.startsWith('/statsvivo ') || cmd.startsWith('/live-stats ')) {
+        const arg = text.replace(/^\/(stats-vivo|statsvivo|live-stats)(?:@\w+)?\s+/i, '').trim();
+        const t = await mundialista365.getStatsVivo(arg);
+        await sendMessage(chatId, t);
+        return true;
+      }
+
+      // /alineacion <gameId> — titulares y formación
+      if (cmd === '/alineacion' || cmd === '/alineacion@botmundialistabot' ||
+          cmd === '/lineup' || cmd === '/lineup@botmundialistabot' ||
+          cmd === '/titulares' || cmd === '/titulares@botmundialistabot') {
+        await sendMessage(chatId,
+          `👥 *ALINEACIONES*\n\n` +
+          `Uso: \`/alineacion <gameId>\`\n\n` +
+          `Ejemplo: \`/alineacion 4749268\`\n\n` +
+          `💡 Las alineaciones se publican cerca del kickoff.`
+        );
+        return true;
+      }
+      if (cmd.startsWith('/alineacion ') || cmd.startsWith('/lineup ') || cmd.startsWith('/titulares ')) {
+        const arg = text.replace(/^\/(alineacion|lineup|titulares)(?:@\w+)?\s+/i, '').trim();
+        const t = await mundialista365.getAlineacion(arg);
+        await sendMessage(chatId, t);
+        return true;
+      }
+
+      // /previa <gameId> — pre-match stats
+      if (cmd === '/previa' || cmd === '/previa@botmundialistabot' || cmd === '/preview' || cmd === '/preview@botmundialistabot') {
+        await sendMessage(chatId,
+          `🔮 *PREVIA DE PARTIDO*\n\n` +
+          `Uso: \`/previa <gameId>\`\n\n` +
+          `Ejemplo: \`/previa 4749268\`\n\n` +
+          `💡 Las previas se generan para partidos programados (statusGroup=2).`
+        );
+        return true;
+      }
+      if (cmd.startsWith('/previa ') || cmd.startsWith('/preview ')) {
+        const arg = text.replace(/^\/(previa|preview)(?:@\w+)?\s+/i, '').trim();
+        const t = await mundialista365.getPrevia(arg);
+        await sendMessage(chatId, t);
+        return true;
+      }
+
+      // /h2h <gameId> — historial entre equipos
+      if (cmd === '/h2h' || cmd === '/h2h@botmundialistabot' || cmd === '/historial-partido' || cmd === '/historial-partido@botmundialistabot') {
+        await sendMessage(chatId,
+          `🤝 *HISTORIAL ENTRE EQUIPOS (H2H)*\n\n` +
+          `Uso: \`/h2h <gameId>\`\n\n` +
+          `Ejemplo: \`/h2h 4749268\``
+        );
+        return true;
+      }
+      if (cmd.startsWith('/h2h ') || cmd.startsWith('/historial-partido ')) {
+        const arg = text.replace(/^\/(h2h|historial-partido)(?:@\w+)?\s+/i, '').trim();
+        const t = await mundialista365.getH2H(arg);
+        await sendMessage(chatId, t);
         return true;
       }
 

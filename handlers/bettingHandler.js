@@ -1,5 +1,5 @@
 // Handler de análisis para apuestas - Mundial 2026
-const footballApi = require('../services/footballApi');
+const cache = require('../services/mundialCache');
 const { formatAnalisis } = require('../utils/formatters');
 
 /**
@@ -11,14 +11,16 @@ async function analizarEnfrentamiento(home, away) {
 
     if (typeof home === 'string' || (home && !home.id)) {
       const homeName = typeof home === 'string' ? home : home.nombre;
-      homeTeam = await footballApi.buscarEquipoDinamico(homeName);
+      const found = await cache.getTeamByName(homeName);
+      homeTeam = found ? { id: found.id, name: found.name } : null;
     } else {
       homeTeam = { id: home.id, name: home.nombre };
     }
 
     if (typeof away === 'string' || (away && !away.id)) {
       const awayName = typeof away === 'string' ? away : away.nombre;
-      awayTeam = await footballApi.buscarEquipoDinamico(awayName);
+      const found = await cache.getTeamByName(awayName);
+      awayTeam = found ? { id: found.id, name: found.name } : null;
     } else {
       awayTeam = { id: away.id, name: away.nombre };
     }
@@ -30,8 +32,8 @@ async function analizarEnfrentamiento(home, away) {
       return `⚠️ No encontré al equipo "${typeof away === 'string' ? away : (away && away.nombre) || ''}"`;
     }
 
-    const homeMatches = await footballApi.getTeamMatches(homeTeam.id, 10);
-    const awayMatches = await footballApi.getTeamMatches(awayTeam.id, 10);
+    const homeMatches = await cache.getRecentWorldCupMatchesByTeam(homeTeam.id);
+    const awayMatches = await cache.getRecentWorldCupMatchesByTeam(awayTeam.id);
 
     const homeStats = calculateTeamStats(homeMatches, homeTeam.name);
     const awayStats = calculateTeamStats(awayMatches, awayTeam.name);
@@ -82,7 +84,7 @@ async function analizarEquipo(equipo) {
     const buscarDinamico = typeof equipo === 'object' ? equipo.buscarDinamico : true;
 
     if (!teamId || buscarDinamico) {
-      const team = await footballApi.buscarEquipoDinamico(teamName);
+      const team = await cache.getTeamByName(teamName);
       if (!team) {
         return `⚠️ No encontré al equipo "${teamName}".`;
       }
@@ -90,7 +92,7 @@ async function analizarEquipo(equipo) {
       teamName = team.name;
     }
 
-    const matches = await footballApi.getTeamMatches(teamId, 10);
+    const matches = await cache.getRecentWorldCupMatchesByTeam(teamId);
     const stats = calculateTeamStats(matches, teamName);
 
     const goals = isNaN(stats.goalsPerMatch) ? '-' : stats.goalsPerMatch;

@@ -29,6 +29,15 @@ El bot soporta **dos formas de entrada**:
 | `/follow <id>` | — | telegramBot → followHandler | sí | Seguir un ticket |
 | `/unfollow <id>` | `/dejarseguir` | telegramBot → followHandler | sí | Dejar de seguir |
 | `/misapuestas` | `/siguiendo` | telegramBot → followHandler | sí | Ver tickets que sigo |
+| `/live` | `/envivo` | telegramBot → mundialista365 | sí | Partidos en vivo ahora (365scores) |
+| `/tip <eq1> vs <eq2>` | — | telegramBot → mundialista365 | sí | Tip con confianza (betting_tips + trends) |
+| `/tendencias` | `/trends` | telegramBot → mundialista365 | sí | Top 10 tendencias del Mundial |
+| `/tendencias [eq1] vs [eq2]` | — | telegramBot → mundialista365 | sí | Tendencias de un partido (resuelve por nombres) |
+| `/predicciones <gameId>` | `/prediccion` | telegramBot → mundialista365 | sí | Predicciones de la comunidad |
+| `/stats-vivo <gameId>` | `/statsvivo`, `/live-stats` | telegramBot → mundialista365 | sí | Stats del último snapshot (game_snapshots) |
+| `/alineacion <gameId>` | `/lineup`, `/titulares` | telegramBot → mundialista365 | sí | Titulares y formación (game_overviews) |
+| `/previa <gameId>` | `/preview` | telegramBot → mundialista365 | sí | Pre-match stats (game_pre_stats) |
+| `/h2h <gameId>` | `/historial-partido` | telegramBot → mundialista365 | sí | Historial entre los equipos (game_h2h) |
 
 Además:
 - **Mensaje libre (no comando)** → pasa por `messageHandler` que usa Gemini para detectar intent
@@ -258,3 +267,64 @@ El bot mantiene un mapa en memoria `userStates` con el estado de conversación:
 - `MODO_DEMO`: cuando no hay DB
 
 Estos estados se limpian automáticamente después de 5 minutos de inactividad.
+
+---
+
+## Comandos basados en DB 365scores (Cosmos)
+
+Estos comandos leen **exclusivamente** del container de Cosmos (`betting_tips`, `trends`, `predictions`, `games`, `game_snapshots`, `game_overviews`, `game_pre_stats`, `game_h2h`). No llaman a la API de 365scores en tiempo de respuesta; los datos se actualizan vía `cosmosRefresh.js` cada 6h y vía bootstrap.
+
+### `/live`, `/envivo`
+
+Lista partidos del Mundial con `statusGroup=1` (En vivo). Por cada partido muestra marcador actual, status y gameId. Los gameIds se pueden usar directo con `/stats-vivo`, `/alineacion`, `/previa`, `/h2h`.
+
+### `/tip [eq1] vs [eq2]`
+
+Resuelve el partido más próximo (statusGroup 1 o 2) o el último finalizado entre los dos equipos en el Mundial, y devuelve el **tip compuesto** desde `betting_tips`:
+
+- `confidenceScore` (0–1, mostrado como %)
+- Top 5 trends con `percentage` y `betCTA` (ej: "Ambos equipos marcarán" al 78%)
+- Emoji de fuerza: 🔥 ≥75% · 📈 ≥60% · ➖ ≥50% · 📉 <50%
+
+Si el partido no se resuelve, sugiere usar `/live` para encontrarlo o mostrar el top Mundial con `/tendencias`.
+
+### `/tendencias`, `/trends`
+
+Dos modos:
+
+- `/tendencias` (sin args) → Top 10 tendencias del Mundial desde `trends` (scope=`competition`, partition `/competitionId=5930`).
+- `/tendencias [eq1] vs [eq2]` → resuelve el partido por nombres y devuelve sus tendencias desde `trends` (scope=`game`). Usa el mismo algoritmo de ranking que `/tip` (vivo → próximo → finalizado).
+
+_No hay modo numérico: para stats en vivo de un partido, usá nombres con /tip, /stats-vivo, /alineacion, etc._
+
+### `/predicciones <gameId>`, `/prediccion <gameId>`
+
+### `/predicciones <gameId>`, `/prediccion <gameId>`
+
+Predicciones de la comunidad desde `predictions` (container, partition `/gameId`). Muestra cada pregunta con total de votos y porcentaje por opción.
+
+### `/stats-vivo <gameId>`, `/statsvivo`, `/live-stats`
+
+Lee el último doc de `game_snapshots` para ese gameId y devuelve una tabla con: goles, córners, tiros, tiros al arco, tarjetas amarillas/rojas, posesión %, pases totales, faltas. Si no hay snapshot (partido aún no empezó o poller no corrió), devuelve un mensaje informativo.
+
+### `/alineacion <gameId>`, `/lineup`, `/titulares`
+
+Lee de `game_overviews` (con fallback a `game_h2h`) y devuelve titulares agrupados por posición (Portero, Defensa, Mediocampista, Delantero) más formación (si está disponible).
+
+### `/previa <gameId>`, `/preview`
+
+Lee de `game_pre_stats`. Solo disponible para partidos `statusGroup=2` (programados). Devuelve métricas pre-partido agrupadas por categoría (forma reciente, etc.).
+
+### `/h2h <gameId>`, `/historial-partido`
+
+Lee de `game_h2h`. Devuelve últimos partidos de cada equipo y enfrentamientos directos históricos.
+
+### Encontrar gameIds
+
+Tres formas de obtener un gameId:
+
+1. `/live` → te los lista directo
+2. `/tip brasil vs argentina` → resuelve el partido más probable (e.g. mirando el tip devuelto)
+3. Cualquier query Cosmos directa (DBA only): `SELECT c.id FROM c WHERE c.competitionId = 5930 AND c.statusGroup = 2`
+
+> Nota: `/tendencias` solo acepta nombres de equipos. Para tendencias por gameId, primero hay que identificar el partido vía `/live` o `/tip`.

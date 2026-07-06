@@ -1,7 +1,7 @@
 // Motor de seguimiento de apuestas en tiempo real
 const cron = require('node-cron');
 const { pool } = require('../database/connection');
-const footballApi = require('./footballApi');
+const cache = require('./mundialCache');
 const notificationService = require('./notificationService');
 
 let trackingJob = null;
@@ -110,7 +110,7 @@ async function obtenerApuestasAbiertas() {
  */
 async function evaluarApuesta(apuesta) {
   // Obtener estadísticas actuales del partido
-  const stats = await footballApi.getMatchStats(apuesta.id_partido_api);
+    const stats = await cache.getMatchStats(apuesta.id_partido_api);
 
   if (!stats) {
     console.log(`[BetTracking] No se pudieron obtener stats para apuesta ${apuesta.id}`);

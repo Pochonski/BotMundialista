@@ -1,5 +1,5 @@
 // Handler de resúmenes inteligentes
-const footballApi = require('../services/footballApi');
+const cache = require('../services/mundialCache');
 
 /**
  * Genera un resumen automático de un partido
@@ -8,12 +8,12 @@ async function generateSummary(home, away) {
   try {
     // Obtener últimos 5 partidos de cada equipo
     const [dataHome, dataAway] = await Promise.all([
-      footballApi.getTeamMatches(home.id, 5),
-      footballApi.getTeamMatches(away.id, 5)
+      cache.getRecentWorldCupMatchesByTeam(home.id),
+      cache.getRecentWorldCupMatchesByTeam(away.id)
     ]);
 
-    const homeStats = calculateSummaryStats(dataHome.response, home.id);
-    const awayStats = calculateSummaryStats(dataAway.response, away.id);
+    const homeStats = calculateSummaryStats(dataHome, home.id);
+    const awayStats = calculateSummaryStats(dataAway, away.id);
 
     // Generar resumen textual
     let summary = `📋 *RESUMEN: ${home.nombre} vs ${away.nombre}*\n\n`;

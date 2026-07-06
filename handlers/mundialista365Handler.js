@@ -1,0 +1,577 @@
+require('dotenv').config();
+const cosmos = require('../database/cosmos');
+const matchSearch = require('../services/matchSearch');
+
+const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
+
+const STAT_LABELS = {
+  1: 'Goles',
+  2: 'Goles 1T',
+  3: 'Asistencias',
+  6: 'Córners',
+  8: 'Córners 1T',
+  14: 'Tiros',
+  15: 'Tiros al arco',
+  21: 'Fueras de juego',
+  31: 'Tarjetas amarillas',
+  32: 'Tarjetas rojas',
+  41: 'Posesión %',
+  43: 'Pases totales',
+  45: 'Pases completados %',
+  52: 'Faltas',
+  56: 'Saques de banda',
+};
+
+const SCORE_STAT_ID = 1;
+const LINE_TYPE_LABELS = {
+  1: 'Ganador',
+  3: 'Over/Under',
+  7: 'Primer gol',
+  12: 'Ambos marcan',
+  14: 'Doble oportunidad',
+};
+
+function pct(n) {
+  if (n == null || isNaN(n)) return '-';
+  const v = Number(n);
+  return `${(v * 100).toFixed(0)}%`;
+}
+
+function trendArrow(p) {
+  if (p == null) return '·';
+  const v = Number(p);
+  if (v >= 0.75) return '🔥';
+  if (v >= 0.6) return '📈';
+  if (v >= 0.5) return '➖';
+  return '📉';
+}
+
+function fmtGameTitle(g) {
+  if (!g) return 'partido';
+  const home = g.homeCompetitor?.name || '?';
+  const away = g.awayCompetitor?.name || '?';
+  return `${home} vs ${away}`;
+}
+
+function fmtDateTime(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'America/Costa_Rica' });
+  } catch (_) {
+    return iso;
+  }
+}
+
+// =================================================================
+// FASE 2: TIPS Y TENDENCIAS
+// =================================================================
+
+/**
+ * Tip compuesto para un partido: combina betting_tips (top 5 trends + confidenceScore)
+ * con metadata del partido desde games.
+ *
+ * @param {Object} game - doc de Cosmos container games
+ * @returns {Promise<string>}
+ */
+async function formatTipForGame(game) {
+  if (!game || !game.id) return '⚠️ Partido no encontrado.';
+
+  const gameId = Number(game.id);
+  const tipDoc = await cosmos.getById('betting_tips', `${gameId}-composite`, gameId);
+
+  let msg = `🎯 *TIP — ${fmtGameTitle(game).toUpperCase()}*\n\n`;
+  msg += `🆔 Game ID: \`${gameId}\`\n`;
+  msg += `📅 ${fmtDateTime(game.startTime)}\n`;
+  if (game.stageName) msg += `🏆 ${game.stageName}\n`;
+
+  if (game.statusGroup === 1) msg += `🔴 *EN VIVO*\n`;
+  else if (game.statusGroup === 4) msg += `✅ Finalizado\n`;
+  else msg += `⏳ Programado\n`;
+  msg += '\n';
+
+  if (!tipDoc || !Array.isArray(tipDoc.topTrends) || tipDoc.topTrends.length === 0) {
+    msg += `ℹ️ Aún no hay tips generados para este partido. `;
+    msg += `El tip se calcula cuando el bootstrap ingiere el partido.\n\n`;
+    msg += `💡 Probá \`/tendencias ${fmtGameTitle(game)}\` o esperá al próximo refresh.`;
+    return msg;
+  }
+
+  const confidence = tipDoc.confidenceScore != null ? pct(tipDoc.confidenceScore) : '-';
+  msg += `📊 *Confianza del modelo:* *${confidence}*\n`;
+  msg += `🧠 Generado: ${tipDoc.generatedAt ? tipDoc.generatedAt.split('T')[0] : '-'}\n\n`;
+
+  msg += `🔥 *Top ${Math.min(5, tipDoc.topTrends.length)} tendencias:*\n`;
+  tipDoc.topTrends.slice(0, 5).forEach((t, i) => {
+    const line = LINE_TYPE_LABELS[t.lineTypeId] || `Tipo ${t.lineTypeId}`;
+    const arrow = trendArrow(t.percentage);
+    msg += `${i + 1}. ${arrow} *${pct(t.percentage)}* — ${t.betCTA || t.text || line}\n`;
+    msg += `     _${t.text || line}_\n`;
+  });
+
+  if (tipDoc.allTrends && tipDoc.allTrends.length > tipDoc.topTrends.length) {
+    msg += `\n_(${tipDoc.allTrends.length - tipDoc.topTrends.length} trends más disponibles con /tendencias)_`;
+  }
+
+  return msg;
+}
+
+/**
+ * Resuelve "Brasil vs Argentina" → gameId y devuelve el tip.
+ * @param {string} home
+ * @param {string} away
+ */
+async function getTipPartido(home, away) {
+  const game = await matchSearch.findGameByTeams(home, away);
+  if (!game) {
+    return `⚠️ No encontré un partido entre *${home}* y *${away}* en el Mundial.\n\n` +
+      `💡 Probá \`/live\` para ver partidos en vivo o \`/tendencias\` para el top Mundial.`;
+  }
+  return formatTipForGame(game);
+}
+
+/**
+ * Lista tendencias (top Mundial o por gameId).
+ * @param {string} scope - 'competition' o 'game'
+ * @param {string|number|null} id - competitionId (5930) o gameId
+ * @param {number} limit
+ */
+async function getTendencias(scope = 'competition', id = null, limit = 10) {
+  const safeScope = scope === 'game' ? 'game' : 'competition';
+  const safeId = id != null ? Number(id) : MUNDIAL_ID;
+
+  let query;
+  if (safeScope === 'competition') {
+    query = { query: 'SELECT c.text, c.percentage, c.betCTA, c.lineTypeId, c.competitionId FROM c WHERE c.scope = @s AND c.competitionId = @c ORDER BY c.percentage DESC OFFSET 0 LIMIT @lim', parameters: [{ name: '@s', value: 'competition' }, { name: '@c', value: safeId }, { name: '@lim', value: limit }] };
+  } else {
+    query = { query: 'SELECT c.text, c.percentage, c.betCTA, c.lineTypeId, c.gameId FROM c WHERE c.scope = @s AND c.gameId = @g ORDER BY c.percentage DESC OFFSET 0 LIMIT @lim', parameters: [{ name: '@s', value: 'game' }, { name: '@g', value: safeId }, { name: '@lim', value: limit }] };
+  }
+
+  let trends = [];
+  try {
+    trends = await cosmos.queryAll('trends', query);
+  } catch (e) {
+    return `⚠️ No pude leer tendencias: ${e.message}`;
+  }
+
+  if (!trends || trends.length === 0) {
+    if (safeScope === 'game') {
+      return `ℹ️ No hay tendencias registradas para el gameId \`${safeId}\`. ` +
+        `Las tendencias se generan cuando el bootstrap ingiere el partido.`;
+    }
+    return `ℹ️ No hay tendencias del Mundial todavía. Corré \`node scripts/cosmos-bootstrap.js\`.`;
+  }
+
+  let title;
+  if (safeScope === 'game') {
+    const game = await cosmos.getById('games', String(safeId), MUNDIAL_ID);
+    title = `🔥 *TENDENCIAS — ${(game ? fmtGameTitle(game) : `Game ${safeId}`).toUpperCase()}*`;
+  } else {
+    title = `🔥 *TOP TENDENCIAS — MUNDIAL 2026*`;
+  }
+
+  let msg = `${title}\n\n`;
+  trends.forEach((t, i) => {
+    const line = LINE_TYPE_LABELS[t.lineTypeId] || `Tipo ${t.lineTypeId}`;
+    const arrow = trendArrow(t.percentage);
+    msg += `${i + 1}. ${arrow} *${pct(t.percentage)}* — ${t.betCTA || line}\n`;
+    msg += `     _${t.text}_\n`;
+  });
+
+  msg += `\n_Leyenda: 🔥 ≥75% · 📈 ≥60% · ➖ ≥50% · 📉 <50%_`;
+  return msg;
+}
+
+/**
+ * Resuelve "Brasil vs Argentina" → gameId y devuelve las tendencias del partido.
+ * Variante user-facing de getTendencias('game', gameId).
+ *
+ * @param {string} home
+ * @param {string} away
+ * @param {number} limit
+ */
+async function getTendenciasByTeams(home, away, limit = 10) {
+  if (!home || !away) {
+    return '⚠️ Formato: `/tendencias [eq1] vs [eq2]`\n\nEj: `/tendencias brasil vs argentina`';
+  }
+
+  const game = await matchSearch.findGameByTeams(home, away);
+  if (!game) {
+    return `⚠️ No encontré un partido entre *${home}* y *${away}* en el Mundial.\n\n` +
+      `💡 Probá \`/live\` para ver partidos en vivo ahora, o usá el top Mundial: \`/tendencias\`.`;
+  }
+
+  const gameId = Number(game.id);
+  const result = await getTendencias('game', gameId, limit);
+
+  const statusText = game.statusGroup === 1 ? '🔴 EN VIVO'
+                   : game.statusGroup === 2 ? '⏳ Programado'
+                   : game.statusGroup === 4 ? '✅ Finalizado'
+                   : '';
+  const when = fmtDateTime(game.startTime);
+  const header = `\n📅 ${when}${statusText ? ' · ' + statusText : ''} · 🆔 gameId \`${gameId}\`\n`;
+
+  return header + result;
+}
+
+// =================================================================
+// FASE 4: STATS VIVO Y ALINEACIONES
+// =================================================================
+
+/**
+ * Devuelve partidos en vivo del Mundial.
+ */
+async function getLiveGames() {
+  const games = await matchSearch.findLiveGames();
+  if (!games || games.length === 0) {
+    return `🟢 *MUNDIAL — EN VIVO*\n\n` +
+      `No hay partidos en vivo en este momento.\n\n` +
+      `💡 Tip: \`/proximos\` para ver los próximos o \`/partidos\` para los de hoy.`;
+  }
+
+  let msg = `🔴 *MUNDIAL — EN VIVO (${games.length})*\n\n`;
+  games.forEach((g) => {
+    const home = g.homeCompetitor?.name || '?';
+    const away = g.awayCompetitor?.name || '?';
+    const hs = g.homeCompetitor?.score ?? '-';
+    const as = g.awayCompetitor?.score ?? '-';
+    msg += `⚽ *${home} ${hs} - ${as} ${away}*\n`;
+    msg += `   ⏱ ${g.statusText || 'En vivo'} · 🆔 \`${g.id}\`\n`;
+    msg += `   📊 \`/stats-vivo ${g.id}\` · 👥 \`/alineacion ${g.id}\`\n\n`;
+  });
+  return msg.trim();
+}
+
+/**
+ * Lee el último snapshot de game_snapshots y devuelve stats agregadas por equipo.
+ * Si no hay snapshot, devuelve mensaje claro.
+ *
+ * @param {string|number} gameId
+ */
+async function getStatsVivo(gameId) {
+  if (!/^\d+$/.test(String(gameId))) {
+    return '⚠️ gameId inválido. Usá un número (ej: `/stats-vivo 4749268`).';
+  }
+  const gid = Number(gameId);
+
+  const game = await cosmos.getById('games', String(gid), MUNDIAL_ID);
+  if (!game) {
+    return `⚠️ No encontré el partido con gameId \`${gid}\` en el Mundial.`;
+  }
+
+  let snap = null;
+  try {
+    snap = await cosmos.queryOne('game_snapshots',
+      { query: 'SELECT TOP 1 c.statistics, c.statisticsFilters, c.lastUpdateId, c.fetchedAt FROM c WHERE c.gameId = @g ORDER BY c._ts DESC', parameters: [{ name: '@g', value: gid }] });
+  } catch (_) { /* ignore */ }
+
+  if (!snap || !Array.isArray(snap.statistics) || snap.statistics.length === 0) {
+    return `ℹ️ No hay snapshot en vivo para *${fmtGameTitle(game)}* todavía.\n\n` +
+      `El poller guarda datos cada 25s durante partidos EN VIVO. Si el partido ya terminó, probá \`/h2h ${gid}\`.`;
+  }
+
+  const homeId = game.homeCompetitor?.id;
+  const awayId = game.awayCompetitor?.id;
+  const homeName = game.homeCompetitor?.name || 'Local';
+  const awayName = game.awayCompetitor?.name || 'Visitante';
+
+  const find = (statId, compId) => {
+    const s = snap.statistics.find((x) => x.id === statId && x.competitorId === compId);
+    return s ? s.value : '-';
+  };
+
+  const homeScore = find(SCORE_STAT_ID, homeId);
+  const awayScore = find(SCORE_STAT_ID, awayId);
+
+  let msg = `📊 *STATS EN VIVO — ${fmtGameTitle(game).toUpperCase()}*\n\n`;
+  msg += `🔴 Marcador: *${homeName} ${homeScore} - ${awayScore} ${awayName}*\n`;
+  msg += `🆔 Game ID: \`${gid}\` · ⏱ ${game.statusText || '-'}\n`;
+  msg += `🕒 Snapshot: ${snap.fetchedAt ? snap.fetchedAt.split('T')[0] + ' ' + (snap.fetchedAt.split('T')[1] || '').slice(0, 5) : '-'}\n\n`;
+
+  msg += `┌────────────────────────────┬──────────┬──────────┐\n`;
+  msg += `│ Métrica                    │ ${pad(homeName, 8)} │ ${pad(awayName, 8)} │\n`;
+  msg += `├────────────────────────────┼──────────┼──────────┤\n`;
+
+  const metricIds = [1, 6, 14, 15, 31, 32, 41, 43, 52];
+  metricIds.forEach((id) => {
+    const label = pad(STAT_LABELS[id] || `#${id}`, 26);
+    const h = String(find(id, homeId));
+    const a = String(find(id, awayId));
+    msg += `│ ${label} │ ${pad(h, 8)} │ ${pad(a, 8)} │\n`;
+  });
+  msg += `└────────────────────────────┴──────────┴──────────┘\n`;
+
+  msg += `\n💡 Tip: \`/alineacion ${gid}\` · \`/h2h ${gid}\``;
+  return msg;
+}
+
+function pad(s, w) {
+  s = String(s ?? '');
+  if (s.length > w) return s.slice(0, w - 1) + '…';
+  return s + ' '.repeat(Math.max(0, w - s.length));
+}
+
+/**
+ * Devuelve la alineación titular de un partido desde game_overviews o fallback a game_h2h.
+ *
+ * @param {string|number} gameId
+ */
+async function getAlineacion(gameId) {
+  if (!/^\d+$/.test(String(gameId))) {
+    return '⚠️ gameId inválido. Usá un número (ej: `/alineacion 4749268`).';
+  }
+  const gid = Number(gameId);
+
+  const game = await cosmos.getById('games', String(gid), MUNDIAL_ID);
+  if (!game) {
+    return `⚠️ No encontré el partido con gameId \`${gid}\` en el Mundial.`;
+  }
+
+  let overview = null;
+  try {
+    overview = await cosmos.queryOne('game_overviews',
+      { query: 'SELECT TOP 1 c.game, c.lastUpdateId FROM c WHERE c.gameId = @g ORDER BY c._ts DESC', parameters: [{ name: '@g', value: gid }] });
+  } catch (_) { /* ignore */ }
+
+  if (!overview || !overview.game) {
+    try {
+      const h2h = await cosmos.getById('game_h2h', String(gid), gid);
+      if (h2h && h2h.game) overview = { game: h2h.game };
+    } catch (_) { /* ignore */ }
+  }
+
+  if (!overview || !overview.game) {
+    if (game.statusGroup === 2) {
+      return `ℹ️ Las alineaciones de *${fmtGameTitle(game)}* se publican cerca del partido. ` +
+        `Volvé a probar 1h antes del kickoff.`;
+    }
+    return `ℹ️ No tengo alineaciones guardadas para \`${gid}\`.`;
+  }
+
+  const g = overview.game;
+  const home = g.homeCompetitor?.name || game.homeCompetitor?.name || 'Local';
+  const away = g.awayCompetitor?.name || game.awayCompetitor?.name || 'Visitante';
+  const homeLineup = g.homeCompetitor?.lineups?.members || [];
+  const awayLineup = g.awayCompetitor?.lineups?.members || [];
+  const homeFormation = g.homeCompetitor?.lineups?.formation || '';
+  const awayFormation = g.awayCompetitor?.lineups?.formation || '';
+
+  if (homeLineup.length === 0 && awayLineup.length === 0) {
+    return `ℹ️ Todavía no hay alineaciones publicadas para *${fmtGameTitle(game)}*.`;
+  }
+
+  let msg = `👥 *ALINEACIONES — ${fmtGameTitle(game).toUpperCase()}*\n\n`;
+  msg += `🆔 Game ID: \`${gid}\` · 📅 ${fmtDateTime(game.startTime)}\n\n`;
+
+  const renderSide = (side, name, formation, lineup) => {
+    let out = `🏠 *${name}*${formation ? `  (${formation})` : ''}\n`;
+    if (!lineup.length) {
+      out += `   _sin datos_\n`;
+      return out;
+    }
+    const byPos = { Portero: [], Defensa: [], 'Centro Defensivo': [], Mediocampista: [], Extremo: [], Delantero: [], 'Centro Delantero': [], Otros: [] };
+    lineup.forEach((m) => {
+      const pos = m.position?.name || 'Otros';
+      if (!byPos[pos]) byPos[pos] = [];
+      byPos[pos].push(m);
+    });
+    Object.keys(byPos).forEach((pos) => {
+      if (!byPos[pos].length) return;
+      out += `   _${pos}:_ `;
+      out += byPos[pos].map((m) => m.shortName || m.name).join(', ');
+      out += `\n`;
+    });
+    return out + '\n';
+  };
+
+  msg += renderSide('home', home, homeFormation, homeLineup);
+  msg += renderSide('away', away, awayFormation, awayLineup);
+
+  msg += `💡 \`/previa ${gid}\` para stats pre-partido · \`/stats-vivo ${gid}\` para live`;
+  return msg;
+}
+
+/**
+ * Stats pre-partido desde game_pre_stats (forma reciente, lesiones).
+ */
+async function getPrevia(gameId) {
+  if (!/^\d+$/.test(String(gameId))) {
+    return '⚠️ gameId inválido. Usá un número (ej: `/previa 4749268`).';
+  }
+  const gid = Number(gameId);
+
+  const game = await cosmos.getById('games', String(gid), MUNDIAL_ID);
+  if (!game) {
+    return `⚠️ No encontré el partido con gameId \`${gid}\` en el Mundial.`;
+  }
+
+  if (game.statusGroup === 4) {
+    return `ℹ️ *${fmtGameTitle(game)}* ya finalizó. ` +
+      `Para análisis, probá \`/h2h ${gid}\`.`;
+  }
+
+  const pre = await cosmos.getById('game_pre_stats', String(gid), gid);
+  if (!pre) {
+    return `ℹ️ No hay pre-stats para *${fmtGameTitle(game)}* todavía. ` +
+      `Se generan cuando el partido está programado (statusGroup=2).`;
+  }
+
+  const stats = pre.statistics || [];
+  if (!Array.isArray(stats) || stats.length === 0) {
+    return `ℹ️ El documento pre-stats de *${fmtGameTitle(game)}* está vacío.`;
+  }
+
+  const homeId = game.homeCompetitor?.id;
+  const awayId = game.awayCompetitor?.id;
+
+  let msg = `🔮 *PREVIA — ${fmtGameTitle(game).toUpperCase()}*\n\n`;
+  msg += `🆔 Game ID: \`${gid}\` · 📅 ${fmtDateTime(game.startTime)}\n\n`;
+
+  const grouped = {};
+  stats.forEach((s) => {
+    const cat = s.categoryName || 'Top';
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(s);
+  });
+
+  Object.keys(grouped).forEach((cat) => {
+    msg += `📂 *${cat}*\n`;
+    const seen = new Set();
+    grouped[cat].forEach((s) => {
+      const partner = grouped[cat].find((x) => x.id === s.id && x.competitorId !== s.competitorId);
+      const local = s.competitorId === homeId ? s.value : partner?.value;
+      const visit = s.competitorId === awayId ? s.value : partner?.value;
+      if (seen.has(s.id)) return;
+      seen.add(s.id);
+      msg += `   ${pad(s.name || `#${s.id}`, 32)} ${pad(local ?? '-', 8)} | ${pad(visit ?? '-', 8)}\n`;
+    });
+    msg += '\n';
+  });
+
+  return msg.trim();
+}
+
+/**
+ * Historial entre los equipos (game_h2h).
+ */
+async function getH2H(gameId) {
+  if (!/^\d+$/.test(String(gameId))) {
+    return '⚠️ gameId inválido. Usá un número (ej: `/h2h 4749268`).';
+  }
+  const gid = Number(gameId);
+
+  const game = await cosmos.getById('games', String(gid), MUNDIAL_ID);
+  if (!game) {
+    return `⚠️ No encontré el partido con gameId \`${gid}\` en el Mundial.`;
+  }
+
+  const h2h = await cosmos.getById('game_h2h', String(gid), gid);
+  if (!h2h || !h2h.game) {
+    return `ℹ️ No tengo historial H2H para *${fmtGameTitle(game)}*.`;
+  }
+
+  const g = h2h.game;
+  const home = g.homeCompetitor?.name || game.homeCompetitor?.name;
+  const away = g.awayCompetitor?.name || game.awayCompetitor?.name;
+
+  let msg = `🤝 *H2H — ${home.toUpperCase()} VS ${away.toUpperCase()}*\n\n`;
+  msg += `🆔 Game ID: \`${gid}\` · 📅 ${fmtDateTime(game.startTime)}\n\n`;
+
+  const recentHome = g.homeCompetitor?.recentGames || [];
+  const recentAway = g.awayCompetitor?.recentGames || [];
+
+  if (recentHome.length > 0) {
+    msg += `📈 *Últimos partidos de ${home}:*\n`;
+    recentHome.slice(0, 5).forEach((rg) => {
+      const homeSide = rg.homeCompetitor?.name || '?';
+      const awaySide = rg.awayCompetitor?.name || '?';
+      const hs = rg.homeCompetitor?.score ?? '-';
+      const as_ = rg.awayCompetitor?.score ?? '-';
+      const date = rg.startTime ? rg.startTime.split('T')[0] : '';
+      msg += `   ${date} · ${homeSide} ${hs}-${as_} ${awaySide}\n`;
+    });
+    msg += '\n';
+  }
+
+  if (recentAway.length > 0) {
+    msg += `📈 *Últimos partidos de ${away}:*\n`;
+    recentAway.slice(0, 5).forEach((rg) => {
+      const homeSide = rg.homeCompetitor?.name || '?';
+      const awaySide = rg.awayCompetitor?.name || '?';
+      const hs = rg.homeCompetitor?.score ?? '-';
+      const as_ = rg.awayCompetitor?.score ?? '-';
+      const date = rg.startTime ? rg.startTime.split('T')[0] : '';
+      msg += `   ${date} · ${homeSide} ${hs}-${as_} ${awaySide}\n`;
+    });
+    msg += '\n';
+  }
+
+  const h2hGames = g.h2hGames || [];
+  if (h2hGames.length > 0) {
+    msg += `⚔️ *Enfrentamientos directos históricos:*\n`;
+    h2hGames.slice(0, 5).forEach((m) => {
+      const homeSide = m.homeCompetitor?.name || '?';
+      const awaySide = m.awayCompetitor?.name || '?';
+      const hs = m.homeCompetitor?.score ?? '-';
+      const as_ = m.awayCompetitor?.score ?? '-';
+      const date = m.startTime ? m.startTime.split('T')[0] : '';
+      msg += `   ${date} · ${homeSide} ${hs}-${as_} ${awaySide}\n`;
+    });
+  } else {
+    msg += `ℹ️ Sin enfrentamientos directos registrados.`;
+  }
+
+  return msg.trim();
+}
+
+/**
+ * Predicciones de la comunidad para un partido desde container predictions.
+ */
+async function getPredicciones(gameId) {
+  if (!/^\d+$/.test(String(gameId))) {
+    return '⚠️ gameId inválido. Usá un número (ej: `/predicciones 4749268`).';
+  }
+  const gid = Number(gameId);
+
+  const game = await cosmos.getById('games', String(gid), MUNDIAL_ID);
+  if (!game) {
+    return `⚠️ No encontré el partido con gameId \`${gid}\` en el Mundial.`;
+  }
+
+  const pred = await cosmos.getById('predictions', String(gid), gid);
+  if (!pred || !pred.promotedPredictions?.predictions) {
+    return `ℹ️ No hay predicciones de la comunidad para *${fmtGameTitle(game)}*.`;
+  }
+
+  let msg = `🗳️ *PREDICCIONES — ${fmtGameTitle(game).toUpperCase()}*\n\n`;
+  msg += `🆔 Game ID: \`${gid}\`\n\n`;
+
+  pred.promotedPredictions.predictions.forEach((p) => {
+    msg += `❓ *${p.title || 'Pregunta'}*`;
+    if (p.totalVotes) msg += `  _(${p.totalVotes.toLocaleString('es')} votos)_`;
+    msg += `\n`;
+    if (Array.isArray(p.options)) {
+      p.options.forEach((opt) => {
+        const total = p.options.reduce((acc, o) => acc + (o.votes || 0), 0) || 1;
+        const pp = total > 0 ? Math.round(((opt.votes || 0) / total) * 100) : 0;
+        msg += `   • ${opt.text || opt.title || 'Opción'}: *${pp}%* _(${opt.votes || 0} votos)_\n`;
+      });
+    }
+    msg += '\n';
+  });
+
+  return msg.trim();
+}
+
+module.exports = {
+  MUNDIAL_ID,
+  getTipPartido,
+  formatTipForGame,
+  getTendencias,
+  getTendenciasByTeams,
+  getLiveGames,
+  getStatsVivo,
+  getAlineacion,
+  getPrevia,
+  getH2H,
+  getPredicciones,
+};

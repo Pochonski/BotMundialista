@@ -1,6 +1,6 @@
 // Servicio de parsing de texto OCR -> JSON estructurado
 const { normalizarMercado, normalizarEquipo, detectarMarcador, detectarMinuto } = require('./marketNormalizer');
-const footballApi = require('./footballApi');
+const cache = require('./mundialCache');
 
 /**
  * Representación interna de una extracción de apuesta
@@ -211,8 +211,8 @@ async function buscarPartidoReal(partido) {
   try {
     // Buscar ambos equipos
     const [homeTeam, awayTeam] = await Promise.all([
-      footballApi.buscarEquipoDinamico(partido.local),
-      footballApi.buscarEquipoDinamico(partido.visitante)
+      cache.getTeamByName(partido.local),
+      cache.getTeamByName(partido.visitante)
     ]);
 
     if (!homeTeam || !awayTeam) {
@@ -221,7 +221,7 @@ async function buscarPartidoReal(partido) {
     }
 
     // Obtener partidos recientes del home team
-    const matches = await footballApi.getTeamMatches(homeTeam.id, 10);
+    const matches = await cache.getRecentWorldCupMatchesByTeam(homeTeam.id);
 
     // Buscar coincidencia con away team
     const match = matches.find(m =>

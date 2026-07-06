@@ -12,6 +12,7 @@ const tReq = (id) => {
 // Estrategia: hacer require de cada handler nuevo y verificar exports.
 const matchSearch = require('../services/matchSearch');
 const mundialista365 = require('../handlers/mundialista365Handler');
+const mundialistaStats = require('../handlers/mundialistaStatsHandler');
 
 const fs = require('fs');
 const path = require('path');
@@ -20,6 +21,7 @@ console.log('-- archivos --');
 const filesToCheck = [
   '../services/matchSearch.js',
   '../handlers/mundialista365Handler.js',
+  '../handlers/mundialistaStatsHandler.js',
   '../telegramBot.js',
 ];
 let ok = 0, fail = 0;
@@ -49,6 +51,22 @@ const checks = [
   { name: "case /previa", regex: /cmd === '\/previa'/ },
   { name: "case /h2h", regex: /cmd === '\/h2h'/ },
   { name: "case /predicciones", regex: /cmd === '\/predicciones'/ },
+
+  // Tier 1 — Contenido del Mundial
+  { name: "require mundialistaStatsHandler", regex: /require\(['"]\.\/handlers\/mundialistaStatsHandler['"]\)/ },
+  { name: "start menciona /noticias", regex: /\/noticias - Últimas noticias/ },
+  { name: "start menciona /equipoideal", regex: /\/equipoideal/ },
+  { name: "start menciona /bracket", regex: /\/bracket - Llaves/ },
+  { name: "start menciona /historial", regex: /\/historial - Campeones/ },
+  { name: "start menciona /goleadores", regex: /\/goleadores - Top goleadores/ },
+  { name: "case /noticias", regex: /cmd === '\/noticias'/ },
+  { name: "case /noticias con eq", regex: /startsWith\('\/noticias '\)/ },
+  { name: "case /equipoideal", regex: /cmd === '\/equipoideal'/ },
+  { name: "case /bracket", regex: /cmd === '\/bracket'/ },
+  { name: "case /bracket grupos", regex: /cmd === '\/bracket grupos'/ },
+  { name: "case /historial", regex: /cmd === '\/historial'/ },
+  { name: "case /historial con arg", regex: /startsWith\('\/historial '\)/ },
+  { name: "case /goleadores", regex: /cmd === '\/goleadores'/ },
 ];
 for (const c of checks) {
   if (c.regex.test(tBot)) { console.log(`  \u2713 ${c.name}`); ok++; }

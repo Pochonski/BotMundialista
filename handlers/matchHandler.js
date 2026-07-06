@@ -3,7 +3,7 @@ const cache = require('../services/mundialCache');
 const { formatMatchLine, detectElimination } = require('../utils/formatters');
 
 function dateStr(d = new Date()) {
-  return d.toISOString().slice(0, 10).replace(/-/g, '');
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' }).replace(/-/g, '');
 }
 
 function fmtDate(ddmmyyyy) {
@@ -37,7 +37,7 @@ async function getPartidosHoy(parsed = {}) {
     });
     const grupos = Object.keys(porGrupo).sort();
     let msg = `⚽ *MUNDIAL 2026 — PARTIDOS DE HOY*\n\n`;
-    msg += `📅 *${new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}*\n\n`;
+    msg += `📅 *${new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Costa_Rica' })}*\n\n`;
     for (const grupo of grupos) {
       const partidos = porGrupo[grupo];
       msg += `📋 *${grupo}*  (${partidos.length} partido${partidos.length === 1 ? '' : 's'})\n`;
@@ -72,6 +72,13 @@ function buildNoMatchesMessage() {
     `• "Próximos partidos del Mundial" — Lo que viene`;
 }
 
+function dateCR(offsetDays = 0) {
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
+  const [y, m, d] = hoy.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + offsetDays);
+  return dt.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
 async function getPartidosFecha(tipoFecha) {
   if (!tipoFecha || tipoFecha === 'null' || tipoFecha === 'undefined') {
     return '📅 *PARTIDOS POR FECHA*\n\n' +
@@ -82,8 +89,18 @@ async function getPartidosFecha(tipoFecha) {
       '💡 Para *últimos resultados* de un equipo, usa:\n' +
       '   "Cómo quedó [equipo]" o "Últimos partidos de [equipo]"';
   }
-  let fecha = tipoFecha;
-  if (/^\d{8}$/.test(tipoFecha)) {
+  let fecha;
+  if (tipoFecha === 'today') {
+    fecha = dateCR();
+  } else if (tipoFecha === 'tomorrow') {
+    fecha = dateCR(1);
+  } else if (tipoFecha === 'day_after') {
+    fecha = dateCR(2);
+  } else if (tipoFecha === 'yesterday') {
+    fecha = dateCR(-1);
+  } else if (tipoFecha === 'day_before') {
+    fecha = dateCR(-2);
+  } else if (/^\d{8}$/.test(tipoFecha)) {
     fecha = tipoFecha;
   } else if (/^\d{4}-\d{2}-\d{2}$/.test(tipoFecha)) {
     fecha = tipoFecha.replace(/-/g, '');

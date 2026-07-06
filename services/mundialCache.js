@@ -139,6 +139,28 @@ async function getRecentWorldCupMatchesByTeam(teamId) {
   });
 }
 
+async function searchAthletes(query) {
+  const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  const target = norm(query);
+  const parts = target.split(/\s+/);
+  const athletes = await cached('athletes:all', ttl(24 * 60 * 60 * 1000), async () => {
+    return cosmos.queryAll('athletes', 'SELECT c.id, c.name, c.shortName, c.position, c.formationPosition, c.age, c.nationalTeamId, c.countryId FROM c');
+  });
+  if (!athletes) return [];
+  return athletes.filter((a) => {
+    const n = norm(a.name);
+    const s = norm(a.shortName || '');
+    return parts.every((p) => n.includes(p) || s.includes(p));
+  }).slice(0, 10);
+}
+
+async function getAthleteById(id) {
+  return cached(`athlete:${id}`, ttl(24 * 60 * 60 * 1000), async () => {
+    const data = await scores365.getAthlete(id, true);
+    return data?.athletes?.[0] || null;
+  });
+}
+
 module.exports = {
   MUNDIAL_ID,
   getWorldCupGames,
@@ -151,6 +173,8 @@ module.exports = {
   getTournamentTop,
   getTeamByName,
   getRecentWorldCupMatchesByTeam,
+  searchAthletes,
+  getAthleteById,
   clear,
   clearKey,
   CACHE,

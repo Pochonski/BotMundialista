@@ -3,6 +3,7 @@ const cache = require('../services/mundialCache');
 const { formatEquipoSeguido, formatMisEquipos, formatMatchLine } = require('../utils/formatters');
 const { getFlag, getConfederation, getRecentForm } = require('../utils/teamContext');
 const { pool, testConnection } = require('../database/connection');
+const { getCountryFlagUrl } = require('../services/images');
 
 let dbAvailable = false;
 let dbCheckPromise = null;

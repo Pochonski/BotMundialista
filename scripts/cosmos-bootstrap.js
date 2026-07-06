@@ -378,14 +378,17 @@ async function generateBettingTips(games) {
         continue;
       }
       if (trends.length) {
-        const trendDocs = trends.map((trend) => ({
-          id: `game-${g.id}-${trend.id}`,
-          scope: 'game',
-          gameId: Number(g.id),
-          competitionId: MUNDIAL_ID,
-          ...trend,
-          _fetchedAt: now(),
-        }));
+        const trendDocs = trends.map((trend) => {
+          const { id: _ti, ...trendRest } = trend;
+          return {
+            id: `game-${g.id}-${trend.id}`,
+            scope: 'game',
+            gameId: Number(g.id),
+            competitionId: MUNDIAL_ID,
+            ...trendRest,
+            _fetchedAt: now(),
+          };
+        });
         await cosmos.bulkInsert('trends', trendDocs);
         trendCount += trendDocs.length;
       }

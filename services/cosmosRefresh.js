@@ -55,9 +55,10 @@ async function refreshTrends() {
   log('refresh trends (competition top)...');
   const trends = await api.getTrends('competition', MUNDIAL_ID);
   if (trends.trends) {
-    const docs = trends.trends.map((t) => ({
-      id: `comp-${MUNDIAL_ID}-${t.id}`, scope: 'competition', competitionId: MUNDIAL_ID, ...t, _fetchedAt: now(),
-    }));
+    const docs = trends.trends.map((t) => {
+      const { id: _ti, ...tRest } = t;
+      return { id: `comp-${MUNDIAL_ID}-${t.id}`, scope: 'competition', competitionId: MUNDIAL_ID, ...tRest, _fetchedAt: now() };
+    });
     await cosmos.bulkInsert('trends', docs);
     log(`  → ${docs.length} trends`);
   }
@@ -95,14 +96,17 @@ async function refreshGameTrends() {
     try {
       const t = await api.getTrends('game', g.id);
       if (t.trends) {
-        const docs = t.trends.map((trend) => ({
-          id: `game-${g.id}-${trend.id}`,
-          scope: 'game',
-          gameId: Number(g.id),
-          competitionId: MUNDIAL_ID,
-          ...trend,
-          _fetchedAt: now(),
-        }));
+        const docs = t.trends.map((trend) => {
+          const { id: _ti, ...trendRest } = trend;
+          return {
+            id: `game-${g.id}-${trend.id}`,
+            scope: 'game',
+            gameId: Number(g.id),
+            competitionId: MUNDIAL_ID,
+            ...trendRest,
+            _fetchedAt: now(),
+          };
+        });
         await cosmos.bulkInsert('trends', docs);
       }
       await new Promise((r) => setTimeout(r, 150));

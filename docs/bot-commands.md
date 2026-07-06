@@ -38,6 +38,15 @@ El bot soporta **dos formas de entrada**:
 | `/alineacion <gameId>` | `/lineup`, `/titulares` | telegramBot → mundialista365 | sí | Titulares y formación (game_overviews) |
 | `/previa <gameId>` | `/preview` | telegramBot → mundialista365 | sí | Pre-match stats (game_pre_stats) |
 | `/h2h <gameId>` | `/historial-partido` | telegramBot → mundialista365 | sí | Historial entre los equipos (game_h2h) |
+| `/noticias` | — | telegramBot → mundialistaStats | sí | Últimas 10 noticias del Mundial |
+| `/noticias <equipo>` | — | telegramBot → mundialistaStats | sí | Noticias de los partidos de un equipo |
+| `/equipoideal` | `/idealtm`, `/tow` | telegramBot → mundialistaStats | sí | Team of the Week con formación y ratings |
+| `/bracket` | `/llaves` | telegramBot → mundialistaStats | sí | Llaves eliminatorias del Mundial |
+| `/bracket grupos` | — | telegramBot → mundialistaStats | sí | Fase de grupos (12 grupos) |
+| `/historial` | — | telegramBot → mundialistaStats | sí | Campeones 1930–2022 |
+| `/historial <año>` | — | telegramBot → mundialistaStats | sí | Detalle de la final de ese año |
+| `/historial <equipo>` | — | telegramBot → mundialistaStats | sí | Ediciones en que participó ese equipo |
+| `/goleadores` | `/rankinggoleador`, `/topgoleador` | telegramBot → mundialistaStats | sí | Ranking de goleadores del Mundial |
 
 Además:
 - **Mensaje libre (no comando)** → pasa por `messageHandler` que usa Gemini para detectar intent
@@ -318,6 +327,50 @@ Lee de `game_pre_stats`. Solo disponible para partidos `statusGroup=2` (programa
 ### `/h2h <gameId>`, `/historial-partido`
 
 Lee de `game_h2h`. Devuelve últimos partidos de cada equipo y enfrentamientos directos históricos.
+
+---
+
+## Comandos basados en DB 365scores — Estadísticas & Contenido (Tier 1)
+
+Estos comandos leen de los containers `news`, `highlights`, `brackets`, `competition_history`, y `tournament_stats`. No llaman a la API de 365scores en tiempo de respuesta; los datos se actualizan vía `cosmosRefresh.js` (cada 6h) y bootstrap.
+
+### `/noticias [equipo]`, `/noticias <equipo>`
+
+- **Sin args**: Query `news` con `scope='comp'` y `competitionId=5930`, ordenado por `publishDate DESC`, limit 10. Muestra título, fecha y URL de cada noticia.
+- **Con equipo**: Busca todos los partidos del equipo en el Mundial via `matchSearch.findGamesByCompetitorName()`, luego filtra `news` con `scope='game'` por esos gameIds. Si no hay noticias de partidos, cae a noticias de competición que mencionen al equipo en el título.
+- **Cómo se genera**: Las noticias se refrescan cada 6h. Si el container está vacío, el bootstrap genera las primeras (141 docs aprox).
+
+### `/equipoideal`, `/idealtm`, `/tow`
+
+- Lee el doc más reciente del container `highlights` con `kind='team_of_week'`.
+- Muestra formación (ej: 4-4-2) y jugadores agrupados por posición (Portero, Defensa, Mediocampista, Delantero).
+- Cada jugador muestra: nombre corto, equipo (si disponible) y rating ⭐.
+- **Si no hay datos**: sugiere re-correr el bootstrap.
+
+### `/bracket [grupos|eliminatorias|todo]`, `/llaves`
+
+- Lee el doc `5930` del container `brackets` con partition `/competitionId`.
+- **Sin args** (default = `eliminatorias`): Muestra solo las rondas eliminatorias (16avos → 8vos → 4tos → semis → final). Cada ronda lista los cruces con marcador si está disponible.
+- **`/bracket grupos`**: Muestra la fase de grupos (12 grupos). Cada grupo lista los equipos participantes separados por ·.
+- **`/bracket todo`**: Muestra ambas fases (grupos + eliminatorias) en un solo mensaje.
+- **Si `brackets` está vacío** (probable): Muestra mensaje amigable + sugerencia de `/mundial` o `/grupo X` + instrucción de bootstrap.
+- Las llaves se generan durante el bootstrap. Si están vacías, puede deberse a que el torneo no tiene estructura de knockout aún.
+
+### `/historial [año|equipo]`
+
+- Lee del container `competition_history` con `competitionId=5930` (22 ediciones, 1930–2022, faltan 1942/1946 WWII).
+- **Sin args**: Lista todas las ediciones en orden descendente mostrando año, campeón (🥇), subcampeón y sede.
+- **Con año** (`/historial 2022`): Muestra detalle de la final: sede (estadio), campeón 🥇, subcampeón 🥈.
+- **Con equipo** (`/historial brasil`): Filtra las 22 ediciones por participantes y muestra en cuáles el equipo fue campeón (🥇), subcampeón (🥈) o finalista (🎗️).
+- **Mapeo seasonNum → año**: Tabla interna en `mundialistaStatsHandler.js` (`SEASON_TO_YEAR`). Los seasonNum saltan de 3→6 por las ediciones no jugadas en 1942/1946.
+
+### `/goleadores`, `/rankinggoleador`, `/topgoleador`
+
+- Lee el doc `5930-se25-athletesStats` del container `tournament_stats` (partition `/competitionId`).
+- Procesa el campo `payload` (objeto con keys `0..N`, cada uno con un `entity` que tiene `name`, `teamName`, `value`).
+- Ordena por `value` (goles) descendente, muestra top 10 con 🥇🥈🥉 para el podio.
+- **Si el doc no existe**: sugiere correr el bootstrap.
+- **Nota**: El doc `athletesStats` contiene 16 atletas. Si el payload tiene estructura no estándar, se intenta parsear de forma flexible.
 
 ### Encontrar gameIds
 

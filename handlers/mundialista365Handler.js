@@ -161,6 +161,38 @@ async function getTendencias(scope = 'competition', id = null, limit = 10) {
     return `ℹ️ No hay tendencias del Mundial todavía. Corré \`node scripts/cosmos-bootstrap.js\`.`;
   }
 
+  const seen = new Set();
+  const unique = [];
+  for (const t of trends) {
+    const key = `${t.betCTA || LINE_TYPE_LABELS[t.lineTypeId] || ''}|${t.lineTypeId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(t);
+  }
+
+  if (safeScope === 'competition') {
+    const activeGames = await matchSearch.findUpcomingGames(64);
+    const liveGames = await matchSearch.findLiveGames();
+    const activeTeams = new Set();
+    for (const g of [...activeGames, ...liveGames]) {
+      if (g.homeCompetitor?.name) activeTeams.add(g.homeCompetitor.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+      if (g.awayCompetitor?.name) activeTeams.add(g.awayCompetitor.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    }
+    const filtered = [];
+    for (const t of unique) {
+      const haystack = `${t.betCTA || ''} ${t.text || ''}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const mentionsTeam = [...activeTeams].some((team) => haystack.includes(team));
+      if (!mentionsTeam) {
+        filtered.push(t);
+        continue;
+      }
+      const hasUpcoming = [...activeTeams].some((team) => haystack.includes(team));
+      if (hasUpcoming) filtered.push(t);
+    }
+    unique.length = 0;
+    unique.push(...filtered);
+  }
+
   let title;
   if (safeScope === 'game') {
     const game = await cosmos.getById('games', String(safeId), MUNDIAL_ID);
@@ -170,7 +202,7 @@ async function getTendencias(scope = 'competition', id = null, limit = 10) {
   }
 
   let msg = `${title}\n\n`;
-  trends.forEach((t, i) => {
+  unique.forEach((t, i) => {
     const line = LINE_TYPE_LABELS[t.lineTypeId] || `Tipo ${t.lineTypeId}`;
     const arrow = trendArrow(t.percentage);
     msg += `${i + 1}. ${arrow} *${pct(t.percentage)}* — ${t.betCTA || line}\n`;

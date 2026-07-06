@@ -104,10 +104,33 @@ async function findUpcomingGames(limit = 10) {
   }
 }
 
+/**
+ * Busca todos los partidos de un equipo en el Mundial 2026.
+ * @param {string} name - nombre del equipo
+ * @param {Object} [opts] - { limit, statusGroups }
+ * @returns {Promise<Array>}
+ */
+async function findGamesByCompetitorName(name, { limit = 50, statusGroups = [1, 2, 4] } = {}) {
+  if (!name) return [];
+  const sg = statusGroups.join(',');
+  try {
+    return await cosmos.queryAll('games',
+      { query: `SELECT c.id, c.competitionId, c.statusGroup, c.startTime, c.homeCompetitor, c.awayCompetitor, c.stageName FROM c WHERE c.competitionId = @m AND c.statusGroup IN (${sg}) AND (CONTAINS(LOWER(c.homeCompetitor.name), LOWER(@n)) OR CONTAINS(LOWER(c.awayCompetitor.name), LOWER(@n))) ORDER BY c.startTime DESC OFFSET 0 LIMIT @lim`,
+        parameters: [
+          { name: '@m', value: MUNDIAL_ID },
+          { name: '@n', value: name },
+          { name: '@lim', value: limit },
+        ] });
+  } catch (_) {
+    return [];
+  }
+}
+
 module.exports = {
   MUNDIAL_ID,
   findGameByTeams,
   findLiveGames,
   findUpcomingGames,
+  findGamesByCompetitorName,
   competitorMatches,
 };

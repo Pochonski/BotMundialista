@@ -6,7 +6,9 @@ const messageHandler = require('./handlers/messageHandler');
 const followHandler = require('./handlers/followHandler');
 const conversationalHandler = require('./handlers/conversationalHandler');
 const mundialista365 = require('./handlers/mundialista365Handler');
+const mundialistaStats = require('./handlers/mundialistaStatsHandler');
 const cache = require('./services/mundialCache');
+const { getAthletePhotoUrl, getCountryFlagUrl } = require('./services/images');
 const { pool, testConnection } = require('./database/connection');
 const userStorage = require('./utils/userStorage');
 const telegramNotifier = require('./services/telegramNotifier');
@@ -81,6 +83,16 @@ async function sendMessage(chatId, text, options = {}) {
   });
 }
 
+async function sendPhoto(chatId, photoUrl, caption = '', options = {}) {
+  return telegramRequest('sendPhoto', {
+    chat_id: chatId,
+    photo: photoUrl,
+    caption,
+    parse_mode: 'Markdown',
+    ...options
+  });
+}
+
 /**
  * Maneja comandos de Telegram (que empiezan con /)
  */
@@ -116,6 +128,16 @@ async function handleCommand(chatId, command, userName, userId) {
         `  /alineacion <gameId> - Titulares y formación\n` +
         `  /previa <gameId> - Pre-match stats\n` +
         `  /h2h <gameId> - Historial entre los equipos\n\n` +
+        `📰 *Contenido del Mundial:*\n` +
+        `  /noticias - Últimas noticias\n` +
+        `  /noticias [equipo] - Noticias de un equipo _(ej: /noticias brasil)_\n` +
+        `  /equipoideal - Team of the Week\n` +
+        `  /bracket - Llaves eliminatorias\n` +
+        `  /bracket grupos - Fase de grupos\n` +
+        `  /historial - Campeones 1930-2022\n` +
+        `  /historial 2022 - Final de ese año\n` +
+        `  /historial brasil - Ediciones del equipo\n` +
+        `  /goleadores - Top goleadores\n\n` +
         `💡 También podés escribir en lenguaje natural:\n` +
         `  "¿Cómo quedó Brasil?"\n` +
         `  "Tabla del grupo C"\n` +
@@ -152,6 +174,16 @@ async function handleCommand(chatId, command, userName, userId) {
         `  /alineacion <gameId> - Titulares y formación\n` +
         `  /previa <gameId> - Pre-match stats\n` +
         `  /h2h <gameId> - Historial entre los equipos\n\n` +
+        `📰 *Contenido del Mundial:*\n` +
+        `  /noticias - Últimas noticias del Mundial\n` +
+        `  /noticias [equipo] - Noticias de un equipo\n` +
+        `  /equipoideal - Team of the Week (formación, ratings)\n` +
+        `  /bracket - Llaves eliminatorias\n` +
+        `  /bracket grupos - Fase de grupos\n` +
+        `  /historial - Todos los campeones\n` +
+        `  /historial [año] - Final específica _(ej: /historial 2022)_\n` +
+        `  /historial [equipo] - Ediciones del equipo _(ej: /historial brasil)_\n` +
+        `  /goleadores - Ranking de goleadores\n\n` +
         `💡 _También entendés: "Cómo le fue a X", "Brasil vs Francia", "Estadísticas de X", "Tabla de la Premier"…_`
       );
       return true;
@@ -220,8 +252,9 @@ async function handleCommand(chatId, command, userName, userId) {
     case '/manana':
     case '/mañana':
     case '/tomorrow': {
-      const tomorrow = new Date(Date.now() + 86400000)
-        .toISOString().split('T')[0].replace(/-/g, '');
+      const hoyCR = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
+      const [y, m, d] = hoyCR.split('-').map(Number);
+      const tomorrow = new Date(y, m - 1, d + 1).toISOString().split('T')[0].replace(/-/g, '');
       try {
         const matches = await cache.getWorldCupGames({ date: tomorrow });
         if (!matches || matches.length === 0) {
@@ -276,7 +309,7 @@ async function handleCommand(chatId, command, userName, userId) {
         `• /grupo [A-L] — Tabla de un grupo\n` +
         `• /partidos — Partidos de hoy\n` +
         `• /manana — Partidos de mañana\n` +
-        `• /ranking — Top goleadores del Mundial`
+        `• /goleadores — Top goleadores del Mundial`
       );
       return true;
     }
@@ -557,12 +590,21 @@ async function handleCommand(chatId, command, userName, userId) {
       }
 
       if (cmd.startsWith('/info ')) {
-        const equipo = text.replace('/info ', '').replace('/Info ', '');
+        const equipo = text.replace(/^\/info(?:@\w+)? /i, '').trim();
+        const team = await cache.getTeamByName(equipo);
+        let flagPhoto = null;
+        if (team && team.countryId) flagPhoto = getCountryFlagUrl(team.countryId);
         const msgInfo = {
           from: chatId.toString(),
           body: `dame info de ${equipo}`,
           hasMedia: false,
-          reply: async (t) => await sendMessage(chatId, t)
+          reply: async (t) => {
+            if (flagPhoto) {
+              await sendPhoto(chatId, flagPhoto, t);
+            } else {
+              await sendMessage(chatId, t);
+            }
+          }
         };
         await messageHandler(null, msgInfo);
         return true;
@@ -739,6 +781,103 @@ async function handleCommand(chatId, command, userName, userId) {
         const arg = text.replace(/^\/(previa|preview)(?:@\w+)?\s+/i, '').trim();
         const t = await mundialista365.getPrevia(arg);
         await sendMessage(chatId, t);
+        return true;
+      }
+
+      // ===========================================================
+      // TIER 1: Contenido del Mundial (365scores via Cosmos)
+      // ===========================================================
+
+      // /noticias [equipo]
+      if (cmd === '/noticias' || cmd === '/noticias@botmundialistabot') {
+        const t = await mundialistaStats.getNoticias({ equipo: null, limit: 10 });
+        await sendMessage(chatId, t);
+        return true;
+      }
+      if (cmd.startsWith('/noticias ') || cmd.startsWith('/noticias@botmundialistabot ')) {
+        const arg = text.replace(/^\/noticias(?:@\w+)?\s+/i, '').trim();
+        const t = await mundialistaStats.getNoticias({ equipo: arg, limit: 10 });
+        await sendMessage(chatId, t);
+        return true;
+      }
+
+      // /equipoideal /idealtm /tow
+      if (cmd === '/equipoideal' || cmd === '/equipoideal@botmundialistabot' ||
+          cmd === '/idealtm' || cmd === '/idealtm@botmundialistabot' ||
+          cmd === '/tow' || cmd === '/tow@botmundialistabot') {
+        const t = await mundialistaStats.getEquipoIdeal();
+        await sendMessage(chatId, t);
+        return true;
+      }
+
+      // /bracket [grupos|eliminatorias|todo]  /llaves
+      if (cmd === '/bracket' || cmd === '/bracket@botmundialistabot' ||
+          cmd === '/llaves' || cmd === '/llaves@botmundialistabot') {
+        const t = await mundialistaStats.getBracket('eliminatorias');
+        await sendMessage(chatId, t);
+        return true;
+      }
+      if (cmd === '/bracket grupos' || cmd === '/bracket@botmundialistabot grupos' ||
+          cmd === '/llaves grupos' || cmd === '/llaves@botmundialistabot grupos') {
+        const t = await mundialistaStats.getBracket('grupos');
+        await sendMessage(chatId, t);
+        return true;
+      }
+      if (cmd === '/bracket todo' || cmd === '/bracket@botmundialistabot todo' ||
+          cmd === '/bracket completo' || cmd === '/bracket@botmundialistabot completo') {
+        const t = await mundialistaStats.getBracket('todo');
+        await sendMessage(chatId, t);
+        return true;
+      }
+
+      // /historial [año|equipo]
+      if (cmd === '/historial' || cmd === '/historial@botmundialistabot') {
+        const t = await mundialistaStats.getHistorial(null);
+        await sendMessage(chatId, t);
+        return true;
+      }
+      if (cmd.startsWith('/historial ') || cmd.startsWith('/historial@botmundialistabot ')) {
+        const arg = text.replace(/^\/historial(?:@\w+)?\s+/i, '').trim();
+        const t = await mundialistaStats.getHistorial(arg);
+        await sendMessage(chatId, t);
+        return true;
+      }
+
+      // /goleadores /rankinggoleador /topgoleador
+      if (cmd === '/goleadores' || cmd === '/goleadores@botmundialistabot' ||
+          cmd === '/rankinggoleador' || cmd === '/rankinggoleador@botmundialistabot' ||
+          cmd === '/topgoleador' || cmd === '/topgoleador@botmundialistabot') {
+        const t = await mundialistaStats.getGoleadores(10);
+        if (t.photoUrl) {
+          await sendPhoto(chatId, t.photoUrl, t.text);
+        } else {
+          await sendMessage(chatId, t.text);
+        }
+        return true;
+      }
+
+      // /jugador <nombre> — foto + info del jugador
+      if (cmd.startsWith('/jugador') || cmd.startsWith('/jugador@botmundialistabot ')) {
+        const name = text.replace(/^\/(jugador|buscar)(?:@\w+)?\s+/i, '').trim();
+        if (!name) {
+          await sendMessage(chatId, '📖 Uso: `/jugador <nombre>` — ej: `/jugador mbappe`');
+          return true;
+        }
+        const matches = await cache.searchAthletes(name);
+        if (!matches || !matches.length) {
+          await sendMessage(chatId, `⚠️ No encontré al jugador "${name}".`);
+          return true;
+        }
+        const athlete = matches[0];
+        const position = athlete.formationPosition?.name || athlete.position?.name || '';
+        const age = athlete.age ? `, ${athlete.age} años` : '';
+        const msg = `⚽ *${athlete.name}*\n📌 ${position}${age}\n🆔 ID: ${athlete.id}`;
+        const photoUrl = getAthletePhotoUrl(athlete.id);
+        if (photoUrl) {
+          await sendPhoto(chatId, photoUrl, msg);
+        } else {
+          await sendMessage(chatId, msg);
+        }
         return true;
       }
 

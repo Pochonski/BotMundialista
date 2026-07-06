@@ -1,11 +1,15 @@
 require('dotenv').config();
 const matchSearch = require('../services/matchSearch');
 const mundialista365 = require('../handlers/mundialista365Handler');
+const mundialistaStats = require('../handlers/mundialistaStatsHandler');
 
-const requiredMatchSearch = ['findGameByTeams', 'findLiveGames', 'findUpcomingGames', 'competitorMatches'];
+const requiredMatchSearch = ['findGameByTeams', 'findLiveGames', 'findUpcomingGames', 'findGamesByCompetitorName', 'competitorMatches'];
 const requiredHandler = [
   'getTipPartido', 'formatTipForGame', 'getTendencias', 'getTendenciasByTeams', 'getLiveGames',
   'getStatsVivo', 'getAlineacion', 'getPrevia', 'getH2H', 'getPredicciones',
+];
+const requiredStatsHandler = [
+  'getNoticias', 'getEquipoIdeal', 'getBracket', 'getHistorial', 'getGoleadores',
 ];
 
 let ok = 0, fail = 0;
@@ -21,6 +25,10 @@ check('MUNDIAL_ID === 5930', matchSearch.MUNDIAL_ID === 5930);
 console.log('\n-- mundialista365Handler --');
 for (const fn of requiredHandler) check(`exports.${fn}`, typeof mundialista365[fn] === 'function');
 check('MUNDIAL_ID === 5930', mundialista365.MUNDIAL_ID === 5930);
+
+console.log('\n-- mundialistaStatsHandler --');
+for (const fn of requiredStatsHandler) check(`exports.${fn}`, typeof mundialistaStats[fn] === 'function');
+check('MUNDIAL_ID === 5930', mundialistaStats.MUNDIAL_ID === 5930);
 
 // Validar regex de /tip parsing (sin tocar API ni Cosmos)
 const { execSync } = require('child_process');

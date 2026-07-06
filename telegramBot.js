@@ -1089,7 +1089,14 @@ async function processUpdates(updates) {
         continue;
       }
 
-      const handled = await handleCommand(chatId, text, user, String(userId));
+      let handled = false;
+      try {
+        handled = await handleCommand(chatId, text, user, String(userId));
+      } catch (e) {
+        console.error(`[telegramBot] handleCommand error:`, e.stack || e.message);
+        await sendMessage(chatId, `❌ Error procesando el comando: ${e.message}`);
+        continue;
+      }
       if (handled) continue;
       // Si no se reconoció el comando, intentar procesar el cuerpo (sin el /) como mensaje natural
       const textSinComando = text.replace(/^\/[a-z@0-9_]+\s*/i, '').trim();
@@ -1187,12 +1194,12 @@ async function init() {
     console.log('⚠️ Modo demo activo (sin base de datos)');
   });
 
-  // Obtener updates pendientes antes de iniciar polling
+  // Procesar updates pendientes antes de iniciar polling
   try {
     const updates = await telegramRequest('getUpdates', { offset: 0, timeout: 0 });
     if (updates.ok && updates.result.length > 0) {
-      offset = updates.result[updates.result.length - 1].update_id + 1;
-      console.log(`📬 Limpiando ${updates.result.length} updates pendientes`);
+      console.log(`📬 Procesando ${updates.result.length} updates pendientes del deploy...`);
+      await processUpdates(updates);
     }
   } catch (error) {
     console.error('Error limpiando updates:', error.message);

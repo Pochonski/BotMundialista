@@ -257,7 +257,7 @@ async function bootstrapStats() {
   if (news.news) {
     const docs = news.news.map((n) => {
       const { id: _ni, ...nRest } = n;
-      return { id: `comp-${n.id}`, scope: 'competition', competitionId: MUNDIAL_ID, ...nRest, _fetchedAt: now() };
+      return { ...nRest, id: `comp-${n.id}`, scope: 'competition', competitionId: MUNDIAL_ID, _fetchedAt: now() };
     });
     await cosmos.bulkInsert('news', docs);
     log(`  → ${docs.length} Mundial news`);
@@ -268,7 +268,7 @@ async function bootstrapStats() {
   if (trendsTop.trends) {
     const docs = trendsTop.trends.map((t) => {
       const { id: _ti, ...tRest } = t;
-      return { id: `comp-${MUNDIAL_ID}-${t.id}`, scope: 'competition', competitionId: MUNDIAL_ID, ...tRest, _fetchedAt: now() };
+      return { ...tRest, id: `comp-${MUNDIAL_ID}-${t.id}`, scope: 'competition', competitionId: MUNDIAL_ID, _fetchedAt: now() };
     });
     await cosmos.bulkInsert('trends', docs);
     log(`  → ${docs.length} top Mundial trends`);
@@ -381,16 +381,18 @@ async function generateBettingTips(games) {
         const trendDocs = trends.map((trend) => {
           const { id: _ti, ...trendRest } = trend;
           return {
+            ...trendRest,
             id: `game-${g.id}-${trend.id}`,
             scope: 'game',
             gameId: Number(g.id),
             competitionId: MUNDIAL_ID,
-            ...trendRest,
             _fetchedAt: now(),
           };
         });
-        await cosmos.bulkInsert('trends', trendDocs);
-        trendCount += trendDocs.length;
+        const inserted = await cosmos.bulkInsert('trends', trendDocs);
+        const ok = inserted.filter((r) => r.statusCode === 200 || r.statusCode === 201);
+        trendCount += ok.length;
+        for (const d of trendDocs) state.markTrend('game', String(d.id));
       }
       const sorted = trends.sort((a, b) => (b.percentage || 0) - (a.percentage || 0));
       const top = sorted.slice(0, 5);

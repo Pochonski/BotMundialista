@@ -82,7 +82,11 @@ async function telegramRequest(method, params = {}, timeoutMs = 60000) {
       body: JSON.stringify(params),
       signal: controller.signal,
     });
-    return await res.json();
+    const data = await res.json();
+    if (!data.ok) {
+      console.error(`[Telegram API] ${method} falló:`, data.description);
+    }
+    return data;
   } finally {
     clearTimeout(timer);
   }

@@ -1,6 +1,7 @@
 require('dotenv').config();
 const cosmos = require('../database/cosmos');
 const matchSearch = require('../services/matchSearch');
+const scores365 = require('../services/scores365Service');
 
 const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
 
@@ -95,10 +96,24 @@ async function formatTipForGame(game) {
   msg += '\n';
 
   if (!tipDoc || !Array.isArray(tipDoc.topTrends) || tipDoc.topTrends.length === 0) {
-    msg += `ℹ️ Aún no hay tips generados para este partido. `;
-    msg += `El tip se calcula cuando el bootstrap ingiere el partido.\n\n`;
-    msg += `💡 Probá \`/tendencias ${fmtGameTitle(game)}\` o esperá al próximo refresh.`;
-    return msg;
+    try {
+      const live = await scores365.getTrends('game', gameId);
+      if (live?.trends?.length) {
+        const sorted = live.trends.sort((a, b) => (b.percentage || 0) - (a.percentage || 0));
+        tipDoc = {
+          confidenceScore: sorted.slice(0, 5).reduce((s, t) => s + (t.percentage || 0), 0) / 5,
+          topTrends: sorted.slice(0, 5),
+          allTrends: sorted,
+          generatedAt: new Date().toISOString(),
+        };
+      }
+    } catch (_) {}
+    if (!tipDoc || !Array.isArray(tipDoc.topTrends) || tipDoc.topTrends.length === 0) {
+      msg += `ℹ️ Aún no hay tips generados para este partido. `;
+      msg += `El tip se calcula cuando el bootstrap ingiere el partido.\n\n`;
+      msg += `💡 Probá \`/tendencias ${fmtGameTitle(game)}\` o esperá al próximo refresh.`;
+      return msg;
+    }
   }
 
   const confidence = tipDoc.confidenceScore != null ? pct(tipDoc.confidenceScore) : '-';
@@ -160,10 +175,21 @@ async function getTendencias(scope = 'competition', id = null, limit = 10) {
 
   if (!trends || trends.length === 0) {
     if (safeScope === 'game') {
-      return `ℹ️ No hay tendencias registradas para el gameId \`${safeId}\`. ` +
-        `Las tendencias se generan cuando el bootstrap ingiere el partido.`;
+      try {
+        const live = await scores365.getTrends('game', safeId);
+        if (live?.trends?.length) {
+          trends = live.trends.map((t) => ({
+            text: t.text, percentage: t.percentage, betCTA: t.betCTA, lineTypeId: t.lineTypeId, gameId: safeId,
+          }));
+        }
+      } catch (_) {}
+      if (!trends || trends.length === 0) {
+        return `ℹ️ No hay tendencias registradas para el gameId \`${safeId}\`. ` +
+          `Las tendencias se generan cuando el bootstrap ingiere el partido.`;
+      }
+    } else {
+      return `ℹ️ No hay tendencias del Mundial todavía. Corré \`node scripts/cosmos-bootstrap.js\`.`;
     }
-    return `ℹ️ No hay tendencias del Mundial todavía. Corré \`node scripts/cosmos-bootstrap.js\`.`;
   }
 
   const seen = new Set();

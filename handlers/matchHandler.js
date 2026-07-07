@@ -185,6 +185,18 @@ async function getResultadoEquipo(equipo) {
       .filter((m) => m.homeCompetitor?.score != null && m.homeCompetitor?.score >= 0 && m.awayCompetitor?.score != null && m.awayCompetitor?.score >= 0)
       .sort((a, b) => new Date(b.startTime || b.date) - new Date(a.startTime || a.date));
     if (matches.length === 0) {
+      const upcoming = rawMatches
+        .filter((m) => (m.homeCompetitor?.score == null || m.homeCompetitor?.score < 0) && (m.awayCompetitor?.score == null || m.awayCompetitor?.score < 0))
+        .sort((a, b) => new Date(a.startTime || a.date) - new Date(b.startTime || a.date));
+      if (upcoming.length > 0) {
+        const next = upcoming[0];
+        const oppId = next.homeCompetitor?.id === teamId ? next.awayCompetitor?.id : next.homeCompetitor?.id;
+        const oppName = next.homeCompetitor?.id === teamId ? next.awayCompetitor?.name : next.homeCompetitor?.name;
+        if (oppId && oppName) {
+          const tips = await getUpcomingMatchTips({ id: teamId, name: teamName }, { id: oppId, name: oppName });
+          if (tips) return tips;
+        }
+      }
       return `⚠️ No encontré partidos jugados de ${teamName}.`;
     }
     let msg = `⚽ *ÚLTIMOS PARTIDOS - ${teamName.toUpperCase()}*\n\n`;

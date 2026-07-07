@@ -1,5 +1,6 @@
 // Handler de partidos y resultados - Mundial 2026
 const cache = require('../services/mundialCache');
+const mundialista365 = require('./mundialista365Handler');
 const { formatMatchLine, detectElimination } = require('../utils/formatters');
 
 function dateStr(d = new Date()) {
@@ -9,6 +10,16 @@ function dateStr(d = new Date()) {
 function fmtDate(ddmmyyyy) {
   if (!ddmmyyyy || ddmmyyyy.length !== 8) return ddmmyyyy;
   return `${ddmmyyyy.slice(0, 4)}-${ddmmyyyy.slice(4, 6)}-${ddmmyyyy.slice(6, 8)}`;
+}
+
+function formatTime(isoStr) {
+  if (!isoStr) return '';
+  if (/^\d{2}:\d{2}/.test(isoStr)) return isoStr;
+  try {
+    const d = new Date(isoStr);
+    if (!isNaN(d)) return d.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Costa_Rica', hour12: false });
+  } catch (_) {}
+  return isoStr;
 }
 
 function getGroupFromMatch(m) {
@@ -45,14 +56,15 @@ async function getPartidosHoy(parsed = {}) {
         const hs = m.homeCompetitor?.score;
         const as = m.awayCompetitor?.score;
         const hasScore = hs != null && hs >= 0 && as != null && as >= 0;
-        const score = hasScore ? `${hs} - ${as}` : (m.startTime || 'vs');
         const home = m.homeCompetitor?.name || '?';
         const away = m.awayCompetitor?.name || '?';
-        msg += `⚽ ${home} ${score} ${away}`;
-        if (!hasScore && m.startTime) {
-          msg += `  _(${m.startTime})_`;
+        if (hasScore) {
+          msg += `⚽ ${home} ${hs} - ${as} ${away}\n`;
+        } else {
+          const time = formatTime(m.startTime);
+          const suffix = time ? ` _(${time})_` : '';
+          msg += `⚽ ${home} vs ${away}${suffix}\n`;
         }
-        msg += '\n';
       });
       msg += '\n';
     }
@@ -126,8 +138,14 @@ async function getPartidosFecha(tipoFecha) {
       const hs = m.homeCompetitor?.score;
       const as = m.awayCompetitor?.score;
       const hasScore = hs != null && hs >= 0 && as != null && as >= 0;
-      const score = hasScore ? `${hs} - ${as}` : (m.startTime || '');
-      msg += `⚽ ${m.homeCompetitor?.name || '?'} ${score} ${m.awayCompetitor?.name || '?'}`;
+      const home = m.homeCompetitor?.name || '?';
+      const away = m.awayCompetitor?.name || '?';
+      if (hasScore) {
+        msg += `⚽ ${home} ${hs} - ${as} ${away}`;
+      } else {
+        const time = m.startTime ? ` (${formatTime(m.startTime)})` : '';
+        msg += `⚽ ${home} vs ${away}${time}`;
+      }
       if (m.stageName && m.stageName !== 'Fase de grupos') msg += ` _(${m.stageName})_`;
       msg += '\n';
     });
@@ -239,6 +257,44 @@ async function getProximosEquipo(equipo, limit = 5) {
   }
 }
 
+/**
+ * Si hay un partido próximo entre homeTeam y awayTeam (sin score),
+ * devuelve el tip + tendencias. Si no, null.
+ */
+async function getUpcomingMatchTips(homeTeam, awayTeam) {
+  try {
+    const game = await cache.findGameByCompetitors(homeTeam.id, awayTeam.id);
+    if (!game) return null;
+    const hs = game.homeCompetitor?.score;
+    const as = game.awayCompetitor?.score;
+    if (hs != null && hs >= 0 && as != null && as >= 0) return null;
+
+    const date = new Date(game.startTime || game.date || 0);
+    const dateStr = date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    let msg = `⚽ *PRÓXIMO PARTIDO*\n`;
+    msg += `📅 ${dateStr}\n`;
+    msg += `🏟 ${homeTeam.name} vs ${awayTeam.name}`;
+    if (game.stageName && game.stageName !== 'Fase de grupos') msg += ` · ${game.stageName}`;
+    msg += '\n\n';
+
+    const [tip, trends] = await Promise.all([
+      mundialista365.getTipPartido(homeTeam.name, awayTeam.name).catch(() => null),
+      mundialista365.getTendenciasByTeams(homeTeam.name, awayTeam.name, 5).catch(() => null),
+    ]);
+    if (tip) {
+      msg += `${tip}\n\n`;
+    }
+    if (trends) {
+      msg += `${trends}`;
+    }
+    if (!tip && !trends) return null;
+    return msg.trim();
+  } catch (e) {
+    console.error('Error getUpcomingMatchTips:', e.message);
+    return null;
+  }
+}
+
 async function getResultadoVS(home, away) {
   try {
     let homeTeam, awayTeam;
@@ -269,6 +325,8 @@ async function getResultadoVS(home, away) {
         }
       }
       if (unique.length === 0) {
+        const tips = await getUpcomingMatchTips(homeTeam, awayTeam);
+        if (tips) return tips;
         return `⚠️ No encontré enfrentamientos recientes entre *${homeTeam.name}* y *${awayTeam.name}*.`;
       }
       let msg = `⚽ *ENFRENTAMIENTOS — ${homeTeam.name.toUpperCase()} VS ${awayTeam.name.toUpperCase()}*\n\n`;
@@ -276,6 +334,9 @@ async function getResultadoVS(home, away) {
       unique.forEach((m) => { msg += formatMatchLine(m, homeTeam.id).line + '\n'; });
       return msg;
     }
+
+    const tips = await getUpcomingMatchTips(homeTeam, awayTeam);
+    if (tips) return tips;
     return `⚠️ No encontré enfrentamientos directos entre *${homeTeam.name}* y *${awayTeam.name}*.\n\n` +
       `💡 Puede que no se hayan enfrentado en el Mundial, o los datos no estén disponibles.`;
   } catch (error) {

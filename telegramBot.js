@@ -1343,24 +1343,29 @@ async function handlePartidosCallback(chatId, callbackData) {
   const action = callbackData.substring(0, idx);
   const gameId = callbackData.substring(idx + 1);
 
-  try {
-    let response;
-    if (action === 'tip') {
+  if (action === 'tip') {
+    try {
       const game = await cache.getGameById(gameId);
       if (game?.homeCompetitor?.name && game?.awayCompetitor?.name) {
-        response = await mundialista365.getTipPartido(game.homeCompetitor.name, game.awayCompetitor.name);
+        const tip = mundialista365.formatTipForGame(game);
+        await sendMessage(chatId, tip);
       } else {
-        response = '⚠️ No pude obtener información de ese partido.';
+        await sendMessage(chatId, '⚠️ No pude obtener información de ese partido.');
       }
-    } else if (action === 'trends') {
-      response = await mundialista365.getTendencias('game', gameId);
-    } else {
-      response = '⚠️ Acción no reconocida.';
+    } catch (e) {
+      console.error('[callback tip] error:', e);
+      await sendMessage(chatId, '⚠️ Error al obtener tip de ese partido.');
     }
-    await sendMessage(chatId, response);
-  } catch (e) {
-    console.error('[callback] error:', e);
-    await sendMessage(chatId, '⚠️ Error al procesar la acción.');
+  } else if (action === 'trends') {
+    try {
+      const t = await mundialista365.getTendencias('game', gameId);
+      await sendMessage(chatId, t);
+    } catch (e) {
+      console.error('[callback trends] error:', e);
+      await sendMessage(chatId, '⚠️ Error al obtener tendencias.');
+    }
+  } else {
+    await sendMessage(chatId, '⚠️ Acción no reconocida.');
   }
 }
 

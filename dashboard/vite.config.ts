@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -16,6 +17,16 @@ export default defineConfig({
         target: 'http://localhost:3002',
         changeOrigin: true,
       },
+    },
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./tests/setup.ts'],
+    include: ['tests/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+    coverage: {
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/index.ts', 'src/**/*.d.ts'],
     },
   },
 })

@@ -38,10 +38,10 @@ dashboard/
 │   ├── 00-VISION.md
 │   ├── 01-DESIGN-TOKENS.md
 │   ├── 02-ARCHITECTURE.md
-│   ├── 03-PHASE-01.md
-│   ├── 04-PHASE-02.md
-│   ├── 05-PHASE-03.md
-│   └── 06-PHASE-04.md
+│   ├── 03-PHASE-01-foundation.md
+│   ├── 04-PHASE-02-core-matches-standings.md
+│   ├── 05-PHASE-03-stats-tips-news-players.md
+│   └── 06-PHASE-04-polish-premium.md
 │
 ├── server/                          # Express API (dominio separado)
 │   ├── package.json                 # Dependencias: express, @azure/cosmos, dotenv
@@ -234,7 +234,12 @@ Usuario → React Component → Hook → Repository (interface)
 | GET | `/api/football/matches/:id/timeline` | `game_snapshots` | Eventos del partido |
 | GET | `/api/football/standings` | `standings` | Tablas de grupos |
 | GET | `/api/football/brackets` | `brackets` | Llaves de eliminación |
-| GET | `/api/football/history` | `competition_history` | Ediciones históricas |
+| GET | `/api/football/history` | `competition_history` | Ediciones históricas (enriquecido) |
+| GET | `/api/football/history/stats` | `competition_history` | Estadísticas agregadas del historial |
+| GET | `/api/football/history/:seasonNum` | `competition_history` | Detalle de una edición específica |
+| GET | `/api/football/history/:seasonNum/match-stats` | `history_match_stats` | Estadísticas del partido final |
+| GET | `/api/football/history/:seasonNum/match-overview` | `history_match_overviews` | Alineaciones del partido final |
+| GET | `/api/football/history/:seasonNum/description` | `history_descriptions` | Descripción enriquecida SEO |
 | GET | `/api/football/stats/scorers` | `tournament_stats` | Goleadores |
 | GET | `/api/football/stats/assists` | `tournament_stats` | Asistencias |
 | GET | `/api/football/stats/ratings` | `tournament_stats` | Valoraciones |

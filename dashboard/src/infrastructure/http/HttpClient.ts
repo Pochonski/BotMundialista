@@ -1,22 +1,9 @@
+import { AppError, ErrorCode } from '@/infrastructure/errors/AppError'
+
 type RequestOptions = {
   params?: Record<string, string | number | undefined>
   timeout?: number
   headers?: Record<string, string>
-}
-
-type ApiResponse<T> = {
-  data: T | null
-  error: string | null
-  loading: boolean
-}
-
-class HttpClientError extends Error {
-  status: number
-  constructor(message: string, status: number) {
-    super(message)
-    this.name = 'HttpClientError'
-    this.status = status
-  }
 }
 
 export class HttpClient {
@@ -59,20 +46,28 @@ export class HttpClient {
       })
 
       if (!response.ok) {
-        throw new HttpClientError(
+        const code = response.status === 401 ? ErrorCode.UNAUTHORIZED
+          : response.status === 403 ? ErrorCode.FORBIDDEN
+          : response.status === 404 ? ErrorCode.NOT_FOUND
+          : response.status >= 500 ? ErrorCode.SERVER_ERROR
+          : ErrorCode.VALIDATION_ERROR
+
+        throw new AppError(
           `HTTP ${response.status}: ${response.statusText}`,
+          code,
           response.status,
         )
       }
 
       return await response.json()
     } catch (error) {
-      if (error instanceof HttpClientError) throw error
+      if (error instanceof AppError) throw error
       if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new HttpClientError('Request timed out', 408)
+        throw new AppError('Request timed out', ErrorCode.TIMEOUT, 408)
       }
-      throw new HttpClientError(
+      throw new AppError(
         error instanceof Error ? error.message : 'Unknown error',
+        ErrorCode.NETWORK_ERROR,
         0,
       )
     } finally {

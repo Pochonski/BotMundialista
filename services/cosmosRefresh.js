@@ -170,6 +170,31 @@ async function refreshAthleteNextGames() {
   }
 }
 
+async function refreshHistory() {
+  log('refresh competition history...');
+  try {
+    const apiData = await api.getCompetitionHistory(MUNDIAL_ID);
+    const rows = apiData?.table?.rows || [];
+    if (rows.length === 0) return;
+    const promises = rows.map(row => {
+      const doc = {
+        id: `${MUNDIAL_ID}-se${row.seasonNum}`,
+        competitionId: MUNDIAL_ID,
+        seasonNum: row.seasonNum,
+        ...row,
+        _fetchedAt: new Date().toISOString(),
+      };
+      return cosmos.upsert('competition_history', doc).catch(e => {
+        console.error(`[refreshHistory] Error upserting season ${row.seasonNum}:`, e.message);
+      });
+    });
+    await Promise.all(promises);
+    log(`  → ${rows.length} editions refreshed`);
+  } catch (e) {
+    console.error('[refreshHistory] Error:', e.message);
+  }
+}
+
 async function tick() {
   try {
     await refreshCatalog();
@@ -181,6 +206,7 @@ async function tick() {
     await refreshGameTrends();
     await refreshOddsLines();
     await refreshAthleteNextGames();
+    await refreshHistory();
     log('refresh completo ✓');
   } catch (e) {
     log(`ERROR: ${e.message}`);

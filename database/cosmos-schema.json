@@ -35,6 +35,10 @@
 
     { "name": "betting_tips", "partitionKey": "/gameId", "defaultTtl": -1, "docIds": "{gameId}-{tipType}", "indexing": { "includedPaths": ["/gameId/?", "/generatedAt/?", "/tipType/?"], "excludedPaths": ["/_etag/?", "/_self/?"] } },
 
-    { "name": "bet_followers", "partitionKey": "/ticketId", "defaultTtl": -1, "docIds": "ticket-{ticketId}", "indexing": { "includedPaths": ["/ticketId/?", "/chatIds/?"], "excludedPaths": ["/_etag/?", "/_self/?"] } }
+    { "name": "bet_followers", "partitionKey": "/ticketId", "defaultTtl": -1, "docIds": "ticket-{ticketId}", "indexing": { "includedPaths": ["/ticketId/?", "/chatIds/?"], "excludedPaths": ["/_etag/?", "/_self/?"] } },
+
+    { "name": "history_match_stats", "partitionKey": "/seasonNum", "defaultTtl": 7776000, "docIds": "stats-{competitionId}-se{seasonNum}", "indexing": { "includedPaths": ["/seasonNum/?", "/competitionId/?"], "excludedPaths": ["/_etag/?", "/_self/?", "/data/?"] } },
+    { "name": "history_match_overviews", "partitionKey": "/seasonNum", "defaultTtl": 7776000, "docIds": "overview-{competitionId}-se{seasonNum}", "indexing": { "includedPaths": ["/seasonNum/?", "/competitionId/?"], "excludedPaths": ["/_etag/?", "/_self/?", "/data/?"] } },
+    { "name": "history_descriptions", "partitionKey": "/seasonNum", "defaultTtl": 2592000, "docIds": "desc-{competitionId}-se{seasonNum}", "indexing": { "includedPaths": ["/seasonNum/?", "/competitionId/?"], "excludedPaths": ["/_etag/?", "/_self/?"] } }
   ]
 }

@@ -28,8 +28,8 @@ async function throttle() {
   lastCall = Date.now();
 }
 
-async function get(path, extraQuery = '') {
-  const url = `${BASE}${path}?${buildQuery(extraQuery)}`;
+async function get(path, extraQuery = '', baseUrl = BASE) {
+  const url = `${baseUrl}${path}?${buildQuery(extraQuery)}`;
   await throttle();
   let res;
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -70,6 +70,8 @@ async function get(path, extraQuery = '') {
   }
   return JSON.parse(buf.toString('utf8'));
 }
+
+const SEO_BASE = 'https://seo-management.365scores.com';
 
 const api = {
   getSports: () => get('/web/sports/'),
@@ -128,6 +130,9 @@ const api = {
     const extra = `${paramName}=${id}${scope === 'sport' ? '&isPreview=true' : '&isPreview=false'}`;
     return get('/web/news/', extra);
   },
+
+  getEntityDescription: (entityType, entityId, sectionNames = 'ENTITY_DESCRIPTION') =>
+    get('/sections/', `appTypeId=${APPTYPE}&langId=${LANG}&timezoneName=${encodeURIComponent(TZ)}&userCountryId=${COUNTRY}&apiType=webws&sportType=1&entityType=${entityType}&entityId=${entityId}&sectionNames=${sectionNames}&activateLinks=true`, SEO_BASE),
 };
 
 module.exports = api;

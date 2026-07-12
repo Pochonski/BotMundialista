@@ -250,7 +250,6 @@ BotMundialista/
 ├── package.json
 ├── .env / .env.example
 ├── .github/workflows/azure.yml      # CI/CD
-├── AZURE_DEPLOY.md                  # Guía de deploy en Azure
 ├── README.md
 │
 ├── database/
@@ -297,8 +296,14 @@ BotMundialista/
 │   ├── marketNormalizer.js          # Normaliza mercados de apuesta
 │   └── countryFlagsService.js      # Banderas de países
 │
+├── dashboard/                       # Dashboard Web Premium
+│   ├── docs/                        # Documentación del dashboard
+│   ├── server/                      # Express API (30+ endpoints)
+│   └── src/                         # React + Clean Architecture
+│
 ├── scripts/                         # Scripts de admin
 │   ├── cosmos-bootstrap.js          # Ingesta inicial 365scores → Cosmos
+│   ├── backfill-history.js          # Backfill de historial Mundial
 │   └── test-365-mundial.js         # 73 checks E2E
 │
 ├── admin/
@@ -314,7 +319,11 @@ BotMundialista/
     ├── README.md (este archivo)
     ├── cosmos-data.md
     ├── api-365scores.md
+    ├── api-rapidapi-endpoints.md     # Endpoints RapidAPI
+    ├── api-rapidapi-overview.md      # Overview RapidAPI
+    ├── azure-deploy.md              # Guía de deploy en Azure
     ├── bot-commands.md
+    ├── bot-follow.md                # Comandos follow/unfollow
     └── env-vars.md
 ```
 
@@ -323,7 +332,7 @@ BotMundialista/
 ## Cómo correr localmente
 
 ```bash
-# 1. Instalar deps
+# 1. Instalar deps del bot
 npm install
 
 # 2. Copiar y completar .env
@@ -339,9 +348,36 @@ node scripts/cosmos-bootstrap.js
 # 5. Iniciar bot
 npm start                # = node bot.js (WhatsApp legacy)
 npm run start:telegram   # = node telegramBot.js (recomendado)
+
+# 6. (Opcional) Iniciar Dashboard Web
+cd dashboard
+npm install
+npm run dev              # Vite dev server (puerto 5173)
+# En otra terminal: node server/index.js (Express API, puerto 3002)
 ```
 
 El test E2E (`scripts/test-365-mundial.js`) tarda ~70s y verifica 73 checks.
+
+---
+
+## Dashboard Web
+
+El dashboard es una app React independiente con su propio servidor Express. Documentación completa en [`dashboard/docs/`](../dashboard/docs/):
+
+| Archivo | Descripción |
+|---------|-------------|
+| [`00-VISION.md`](../dashboard/docs/00-VISION.md) | Visión general del dashboard |
+| [`01-DESIGN-TOKENS.md`](../dashboard/docs/01-DESIGN-TOKENS.md) | Sistema de diseño (colores, tipografía, layout) |
+| [`02-ARCHITECTURE.md`](../dashboard/docs/02-ARCHITECTURE.md) | Clean Architecture + endpoints |
+| [`03-PHASE-01-foundation.md`](../dashboard/docs/03-PHASE-01-foundation.md) | Fase 1: Fundación |
+| [`04-PHASE-02-core-matches-standings.md`](../dashboard/docs/04-PHASE-02-core-matches-standings.md) | Fase 2: Partidos + Tabla |
+| [`05-PHASE-03-stats-tips-news-players.md`](../dashboard/docs/05-PHASE-03-stats-tips-news-players.md) | Fase 3: Stats + Tips + Noticias |
+| [`06-PHASE-04-polish-premium.md`](../dashboard/docs/06-PHASE-04-polish-premium.md) | Fase 4: Polish premium |
+| [`07-PHASE-05-history-backend.md`](../dashboard/docs/07-PHASE-05-history-backend.md) | Fase 5: History backend |
+| [`08-PHASE-06-history-data-layer.md`](../dashboard/docs/08-PHASE-06-history-data-layer.md) | Fase 6: History data layer |
+| [`09-PHASE-07-history-ui.md`](../dashboard/docs/09-PHASE-07-history-ui.md) | Fase 7: History UI |
+| [`10-PHASE-08-history-refresh.md`](../dashboard/docs/10-PHASE-08-history-refresh.md) | Fase 8: History refresh |
+```
 
 ---
 

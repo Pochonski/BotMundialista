@@ -1,22 +1,30 @@
 # BotMundialista 🤖⚽
 
-**Tu asistente personal de fútbol y apuestas deportivas por WhatsApp**
+**Ecosistema completo: bot Telegram + Dashboard Web Premium para el Mundial 2026**
 
 ---
 
 ## ¿Qué es BotMundialista?
 
-BotMundialista es un bot de WhatsApp inteligente que combina información deportiva en tiempo real con un sistema completo de seguimiento de apuestas deportivas. Diseñado para aficionados al fútbol que quieren estar informados y hacer seguimiento de sus apuestas de forma automática.
+Ecosistema inteligente de fútbol y apuestas que combina un **bot de Telegram** en producción con un **Dashboard Web** premium para el Mundial 2026. Diseñado para aficionados al fútbol hispanohablantes que quieren seguir el torneo con calidad broadcast.
 
 ### Características Principales
 
-**📊 Información de Fútbol**
+**🤖 Bot de Telegram (producción)**
 
-- Resultados en vivo y pasados de cualquier equipo
-- Estadísticas detalladas de equipos y jugadores
-- Análisis de enfrentamientos históricos
-- Tablas de posiciones de múltiples ligas
-- Información de todos los equipos del Mundial 2026
+- Resultados en vivo, estadísticas, tablas de posiciones
+- Seguimiento de apuestas con notificaciones en tiempo real
+- Lenguaje natural en español (Gemini) + comandos `/`
+- Historial cara a cara, goleadores, rachas, tendencias
+
+**🌐 Dashboard Web Premium**
+
+- Centro de comando visual para el Mundial 2026
+- Partidos en vivo con marcador animado estilo broadcast
+- Tabla de posiciones, estadísticas, goleadores, noticias
+- Historial de todas las ediciones del Mundial (1930-2022)
+- Tendencias de apuestas, tips, predicciones
+- Perfiles de jugadores y equipos con datos de carrera
 
 **🎰 Seguimiento de Apuestas**
 
@@ -143,34 +151,43 @@ El bot tiene personalidad propia y envía notificaciones entusiastas:
 ## Arquitectura del Proyecto
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      WhatsApp                             │
-│                   (whatsapp-web.js)                      │
-└─────────────────────┬───────────────────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────────────────┐
-│                   messageHandler.js                       │
-│              Router principal de mensajes                  │
-└──────────┬──────────────────────────────────┬───────────┘
-           │                                  │
-           ▼                                  ▼
-┌─────────────────────┐          ┌─────────────────────────┐
-│   matchHandler.js   │          │   betImageHandler.js   │
-│   Partidos/Resultados│          │   Procesamiento OCR     │
-└─────────────────────┘          └───────────┬─────────────┘
-           │                                  │
-           ▼                                  ▼
-┌─────────────────────┐          ┌─────────────────────────┐
-│    footballApi.js   │          │    betTrackingEngine    │
-│   API SportAPI7     │          │   Monitoreo en tiempo   │
-└─────────────────────┘          └───────────┬─────────────┘
-                                             │
-                                             ▼
-┌─────────────────────────────────────────────────────────┐
-│               notificationService.js                      │
-│         Notificaciones WhatsApp con personalidad         │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        Telegram (producción)                       │
+│                    @botmundialistabot (polling)                    │
+└──────────────────────────┬───────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                      messageHandler.js                            │
+│                 Router + Gemini (intent parser)                   │
+└──┬───────────────┬───────────────┬───────────────┬──────────────┘
+   │               │               │               │
+   ▼               ▼               ▼               ▼
+┌────────┐  ┌──────────┐  ┌────────────┐  ┌──────────────────┐
+│ match  │  │  table   │  │   follow   │  │   betImage       │
+│Handler │  │ Handler  │  │   Handler  │  │   Handler (OCR)   │
+└───┬────┘  └────┬─────┘  └─────┬──────┘  └────────┬─────────┘
+    │            │               │                   │
+    ▼            ▼               ▼                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│              scores365Service.js (gzip, retry, throttle)     │
+│              cosmosRefresh.js (cron 6h)                      │
+│              liveGamesPoller.js (cron 25s)                   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+              ┌────────────┴────────────┐
+              ▼                         ▼
+     ┌──────────────┐          ┌──────────────┐
+     │  Cosmos DB   │          │  365scores   │
+     │  (cache)     │          │  web API     │
+     └──────────────┘          └──────────────┘
+                           │
+                           ▼
+              ┌──────────────────────────┐
+              │   Dashboard Web (React)   │
+              │   Express API + Clean     │
+              │   Architecture            │
+              └──────────────────────────┘
 ```
 
 ---
@@ -179,15 +196,30 @@ El bot tiene personalidad propia y envía notificaciones entusiastas:
 
 ```
 BotMundialista/
-├── bot.js                      # Punto de entrada principal
-├── admin/
-│   ├── server.js               # Servidor Express (panel admin)
-│   └── public/                 # Frontend del panel admin
-│       ├── index.html
-│       └── images/             # Imágenes de apuestas guardadas
+├── telegramBot.js              # Bot principal Telegram (long-polling)
+├── bot.js                      # Bot legacy WhatsApp
+├── package.json
+├── .env / .env.example
+├── .github/workflows/azure.yml  # CI/CD
+│
+├── dashboard/                  # Dashboard Web Premium
+│   ├── docs/                   # Documentación del dashboard
+│   ├── server/                 # Express API (30+ endpoints)
+│   ├── src/                    # React + Clean Architecture
+│   │   ├── domain/             # Entidades + interfaces repositorio
+│   │   ├── data/               # Implementaciones repositorio
+│   │   ├── presentation/       # Componentes, hooks, páginas
+│   │   └── infrastructure/    # HTTP, cache, DI, logging, seguridad
+│   ├── tests/                  # Vitest
+│   ├── index.html
+│   ├── package.json
+│   └── vite.config.ts
+│
 ├── database/
 │   ├── connection.js           # Conexión Supabase PostgreSQL
-│   └── schema.sql             # Schema completo de BD
+│   ├── cosmos.js               # Wrapper @azure/cosmos
+│   ├── cosmos-schema.json      # Schema 27 containers
+│   └── schema.sql              # Schema completo de BD
 ├── handlers/
 │   ├── messageHandler.js       # Router principal de mensajes
 │   ├── matchHandler.js         # Resultados y partidos
@@ -195,22 +227,33 @@ BotMundialista/
 │   ├── statsHandler.js         # Estadísticas
 │   ├── bettingHandler.js        # Análisis de apuestas
 │   ├── tableHandler.js         # Tablas de posiciones
+│   ├── followHandler.js        # /follow, /unfollow
+│   ├── conversationalHandler.js # NLU: "sigueme el 555"
 │   ├── queryParser.js          # NLP para detectar intents
 │   ├── betImageHandler.js      # Procesamiento de imágenes OCR
 │   └── summaryHandler.js       # Resúmenes inteligentes
 ├── services/
-│   ├── footballApi.js          # Cliente API SportAPI7
-│   ├── betTrackingEngine.js    # Motor de monitoreo 60s
-│   ├── notificationService.js  # Envío de notificaciones WA
-│   ├── marketNormalizer.js     # Normaliza mercados de apuestas
-│   ├── betParserService.js    # Parser OCR → JSON
-│   ├── ocrService.js          # Wrapper Tesseract.js
-│   ├── countryFlagsService.js  # Banderas de países
-│   ├── imageStorageService.js # Almacenamiento de imágenes
-│   └── cacheService.js        # Cache en memoria con TTL
+│   ├── scores365Service.js      # Cliente 365scores (gzip, retry)
+│   ├── cosmosRefresh.js         # Refresh periódico (6h cron)
+│   ├── liveGamesPoller.js       # Polling live (25s cron)
+│   ├── geminiService.js         # Wrapper Gemini 2.5 Flash
+│   ├── betEvaluator.js          # Evalúa 9 tipos de apuesta
+│   ├── notifier.js              # EventEmitter
+│   ├── telegramNotifier.js      # Listener notificaciones
+│   ├── intentParser.js          # Regex + Gemini fallback
+│   ├── conversationContext.js    # Memoria por chat
+│   ├── footballApi.js           # Cliente API SportAPI7
+│   ├── betTrackingEngine.js     # Motor de monitoreo 60s
+│   ├── notificationService.js   # Notificaciones WhatsApp
+│   ├── marketNormalizer.js      # Normaliza mercados
+│   ├── betParserService.js      # Parser OCR → JSON
+│   ├── ocrService.js            # Wrapper Tesseract.js
+│   ├── countryFlagsService.js   # Banderas de países
+│   ├── imageStorageService.js   # Almacenamiento de imágenes
+│   └── cacheService.js          # Cache en memoria con TTL
 ├── utils/
-│   ├── constants.js           # Constantes y mappings
-│   └── formatters.js          # Formateadores de respuesta
+│   ├── constants.js            # Constantes y mappings
+│   └── formatters.js           # Formateadores de respuesta
 └── node_modules/
 ```
 
@@ -218,23 +261,29 @@ BotMundialista/
 
 ## Tecnologías Utilizadas
 
-| Categoría         | Tecnología            | Propósito                           |
-| ----------------- | --------------------- | ----------------------------------- |
-| **WhatsApp**      | whatsapp-web.js       | Conexión a WhatsApp Web             |
-| **OCR**           | Tesseract.js          | Reconocimiento de texto en imágenes |
-| **Base de Datos** | Supabase (PostgreSQL) | Persistencia de datos               |
-| **API Fútbol**    | SportAPI7 (RapidAPI)  | Datos de partidos y estadísticas    |
-| **Servidor**      | Express.js            | Panel administrativo                |
-| **Programación**  | Node.js               | Runtime JavaScript                  |
-| **Scheduling**    | node-cron             | Tareas programadas cada 60s         |
+| Categoría            | Tecnología                          | Propósito                              |
+| -------------------- | ----------------------------------- | -------------------------------------- |
+| **Bot Telegram**     | node-telegram-bot-api               | Bot en producción                      |
+| **Dashboard Front**  | React 19 + TypeScript + Vite 6     | UI del dashboard                       |
+| **Dashboard Back**   | Express.js + Clean Architecture     | API REST 30+ endpoints                 |
+| **Estilos**          | Tailwind CSS 4 + CSS Custom Props   | Diseño broadcast oscuro                |
+| **Base de Datos**    | Supabase (PostgreSQL)               | Persistencia de datos                  |
+| **Cache**            | Azure Cosmos DB (Free tier)         | Cache de 365scores, 27 containers      |
+| **API Fútbol**       | 365scores web API (pública)         | Datos en tiempo real                   |
+| **API Legacy**       | SportAPI7 (RapidAPI)               | Datos de partidos (WhatsApp legacy)    |
+| **NLU**              | Gemini 2.5 Flash                   | Parseo de lenguaje natural             |
+| **OCR**              | Tesseract.js                       | Reconocimiento de texto en imágenes   |
+| **Testing**          | Vitest + jsdom + Testing Library   | Tests del dashboard                   |
+| **Scheduling**       | node-cron                          | Tareas programadas                    |
 
 ---
 
 ## Requisitos Previos
 
 - **Node.js** 18+ instalado
-- **WhatsApp** activo para escanear QR
+- **WhatsApp** activo para escanear QR (solo legacy)
 - **Supabase** cuenta (o PostgreSQL local)
+- **Azure Cosmos DB** Free tier (o emulador local)
 - **RapidAPI** key para SportAPI7
 - **npm/pnpm** como gestor de paquetes
 
@@ -249,10 +298,10 @@ git clone <repo-url>
 cd BotMundialista
 ```
 
-2. **Instalar dependencias**
+2. **Instalar dependencias del bot**
 
 ```bash
-pnpm install
+npm install
 ```
 
 3. **Configurar variables de entorno**
@@ -269,15 +318,22 @@ cp .env.example .env
 psql -h your-host -U postgres -d your-db -f database/schema.sql
 ```
 
-5. **Iniciar el bot**
+5. **Iniciar el bot de Telegram**
 
 ```bash
-node bot.js
+npm run start:telegram
 ```
 
-6. **Escanear QR** con WhatsApp
+6. **Iniciar el Dashboard Web** (opcional, en otra terminal)
 
-7. **Iniciar panel admin** (opcional, en otra terminal)
+```bash
+cd dashboard
+npm install
+npm run dev
+# Servidor Express: node server/index.js
+```
+
+7. **Iniciar panel admin** (opcional)
 
 ```bash
 node admin/server.js

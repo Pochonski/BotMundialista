@@ -28,7 +28,7 @@ export function useTournamentStats() {
         setScorers(s)
         setAssists(a)
         setRatings(r)
-        setTeamOfWeek(tow)
+        setTeamOfWeek(tow as TeamOfWeekData | null)
       }
     } catch {
       if (!signal?.aborted) {

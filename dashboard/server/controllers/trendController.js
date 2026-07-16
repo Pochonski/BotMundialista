@@ -3,11 +3,13 @@ const cosmos = require(path.join(__dirname, '..', '..', '..', 'database', 'cosmo
 const { enrichTrend } = require('../utils/mappers');
 
 const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
+const COMPETITION_PK = String(MUNDIAL_ID);
 
 async function getCompetitionTrends(req, res, next) {
   try {
     const trends = await cosmos.queryAll('trends', {
-      query: `SELECT * FROM c WHERE c.scope = 'competition' AND c.competitionId = ${MUNDIAL_ID} ORDER BY c.percentage DESC`,
+      query: 'SELECT * FROM c WHERE c.scope = @scope AND c.competitionId = @compId ORDER BY c.percentage DESC',
+      parameters: [{ name: '@scope', value: 'competition' }, { name: '@compId', value: COMPETITION_PK }],
     });
 
     const seen = new Set();

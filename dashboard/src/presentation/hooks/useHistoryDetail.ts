@@ -31,7 +31,11 @@ function mapStats(raw: Record<string, unknown> | null): HistoricalMatchStats | n
   for (const s of statsRaw) {
     const name = String(s.name || '')
     if (s.competitorId === homeId) {
-      stats.push({ name, home: s.value ?? '', away: statsMap.get(name)?.away ?? '' })
+      stats.push({
+        name,
+        home: (s.value ?? '') as number | string,
+        away: statsMap.get(name)?.away ?? ('' as number | string),
+      })
     }
   }
 

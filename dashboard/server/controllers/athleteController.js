@@ -13,11 +13,14 @@ async function enrichAthleteTransfers(athlete) {
 async function searchAthletes(req, res, next) {
   try {
     const { search, teamId } = req.query;
-    let query = `SELECT * FROM c WHERE 1=1`;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, parseInt(req.query.limit) || 20);
+    const offset = (page - 1) * limit;
+    let query = 'SELECT c.id, c.name, c.shortName, c.nationalTeamId FROM c WHERE 1=1';
     const params = [];
 
     if (search) {
-      query += ` AND CONTAINS(LOWER(c.name), @search)`;
+      query += ' AND CONTAINS(LOWER(c.name), @search)';
       params.push({ name: '@search', value: search.toLowerCase() });
     }
     if (teamId) {
@@ -27,7 +30,8 @@ async function searchAthletes(req, res, next) {
         query += ' AND c.nationalTeamId = @tid';
       }
     }
-    query += ' OFFSET 0 LIMIT 20';
+    query += ' OFFSET @offset LIMIT @limit';
+    params.push({ name: '@offset', value: offset }, { name: '@limit', value: limit });
 
     const athletes = await cosmos.queryAll('athletes', { query, parameters: params });
     res.json(athletes.map(enrichAthlete));
@@ -51,7 +55,8 @@ async function getAthleteCareer(req, res, next) {
   try {
     const { id } = req.params;
     const careers = await cosmos.queryAll('athlete_careers', {
-      query: `SELECT * FROM c WHERE c.athleteId = ${Number(id)} ORDER BY c.seasonKey DESC`,
+      query: 'SELECT * FROM c WHERE c.athleteId = @aid ORDER BY c.seasonKey DESC',
+      parameters: [{ name: '@aid', value: Number(id) }],
     });
     res.json(careers.map(c => ({
       seasonKey: c.seasonKey,
@@ -90,7 +95,8 @@ async function getAthleteTransfers(req, res, next) {
     const rawTransfers = athlete?.transfers?.length
       ? athlete.transfers
       : await cosmos.queryAll('athlete_transfers', {
-          query: `SELECT * FROM c WHERE c.athleteId = ${numericId} ORDER BY c.date DESC`,
+          query: 'SELECT * FROM c WHERE c.athleteId = @aid ORDER BY c.date DESC',
+          parameters: [{ name: '@aid', value: numericId }],
         });
     const map = await getCompetitorMap();
     res.json(rawTransfers.map(t => enrichTransferWithTeam({

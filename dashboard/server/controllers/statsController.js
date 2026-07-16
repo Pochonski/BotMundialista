@@ -80,7 +80,8 @@ async function getTeamOfWeek(req, res, next) {
     let tow = null;
 
     const docs = await cosmos.queryAll('highlights', {
-      query: `SELECT * FROM c WHERE c.kind = 'team_of_week' AND c.competitionId = ${MUNDIAL_ID} ORDER BY c._ts DESC`,
+      query: 'SELECT * FROM c WHERE c.kind = @kind AND c.competitionId = @compId ORDER BY c._ts DESC',
+      parameters: [{ name: '@kind', value: 'team_of_week' }, { name: '@compId', value: COMPETITION_PK }],
     });
     if (docs.length > 0) {
       if (docs[0].teamOfTheWeek?.lineup) {

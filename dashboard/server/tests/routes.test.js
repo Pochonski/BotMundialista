@@ -114,4 +114,19 @@ describe('CORS headers', () => {
       .set('Origin', 'https://dashboard.mundialista.com');
     expect(res.headers['access-control-allow-origin']).toBe('https://dashboard.mundialista.com');
   });
+
+  it('rechaza origenes no permitidos', async () => {
+    mockCosmos.queryAll.mockResolvedValue([]);
+    const res = await request(app)
+      .get('/api/football/matches')
+      .set('Origin', 'https://evil.com');
+    expect(res.headers['access-control-allow-origin']).not.toBe('https://evil.com');
+  });
+});
+
+describe('Validation errors', () => {
+  it('devuelve 400 para history con seasonNum inválido', async () => {
+    const res = await request(app).get('/api/football/history/abc');
+    expect(res.status).toBe(400);
+  });
 });

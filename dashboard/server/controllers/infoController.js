@@ -3,6 +3,7 @@ const cosmos = require(path.join(__dirname, '..', '..', '..', 'database', 'cosmo
 const images = require(path.join(__dirname, '..', '..', '..', 'services', 'images'));
 
 const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
+const COMPETITION_PK = String(MUNDIAL_ID);
 const CURRENT_SEASON = parseInt(process.env.SCORES365_SEASON || '25', 10);
 
 async function getCountries(req, res, next) {
@@ -23,7 +24,8 @@ async function getCountries(req, res, next) {
 async function getTournamentInfo(req, res, next) {
   try {
     const competitions = await cosmos.queryAll('catalog', {
-      query: `SELECT * FROM c WHERE c.entityType = 'competitions' AND c.id = ${MUNDIAL_ID}`,
+      query: 'SELECT * FROM c WHERE c.entityType = @etype AND c.id = @compId',
+      parameters: [{ name: '@etype', value: 'competitions' }, { name: '@compId', value: COMPETITION_PK }],
     });
     if (competitions.length === 0) {
       return res.json({

@@ -6,11 +6,30 @@ Dashboard web premium para la Copa Mundial FIFA 2026.
 
 - React 19 + TypeScript 5.6
 - Vite 6 (build/dev server)
-- Tailwind CSS 4
-- React Router 7
+- Tailwind CSS 4 + React Router 7
 - Zod 4 (runtime validation)
-- Express 4 + Pino (backend)
+- Express 4 + Pino (backend logging)
 - Azure Cosmos DB (datos)
+- PM2 (production process manager)
+
+## Features
+
+- Partidos en vivo con polling inteligente (pausa si pestaña oculta)
+- Hero match animado con goal-ray effect y score shimmer
+- Match grid filtrable y ticker scrolleable
+- Tabla de posiciones con forma reciente
+- Estadísticas del torneo: goleadores, asistencias, ratings
+- Historial de ediciones anteriores con stats y lineups
+- Búsqueda de jugadores con debounce y navegación por teclado
+- Noticias con scroll infinito
+- Code splitting por ruta (React.lazy + Suspense)
+- PWA: service worker + manifest + runtime caching de imágenes
+- Diseño responsive mobile-first con touch targets ≥44px
+- Accesibilidad: aria-live, focus trap, roles ARIA, prefers-reduced-motion
+- ErrorBoundary global + ErrorState por página con retry
+- Zod schemas en todos los mappers con AppError tipado
+- InMemoryCache con límite de entradas y stampede protection
+- Analytics de bundle con `npm run analyze`
 
 ## Requisitos
 
@@ -23,13 +42,13 @@ Dashboard web premium para la Copa Mundial FIFA 2026.
 # Frontend
 npm install
 
-# Backend (en otra carpeta o terminal)
+# Backend
 cd server && npm install && cd ..
 ```
 
 ## Variables de Entorno
 
-Copia `.env.example` a `.env` en la raíz del monorepo y configura:
+Copia `.env.example` a `.env` y configura:
 
 | Variable | Default | Descripción |
 |---|---|---|
@@ -46,7 +65,7 @@ Copia `.env.example` a `.env` en la raíz del monorepo y configura:
 # Terminal 1: Backend
 cd server && npm run dev
 
-# Terminal 2: Frontend (proxy a :3002 automático vía vite.config.ts)
+# Terminal 2: Frontend (proxy a :3002 vía vite.config.ts)
 npm run dev
 ```
 
@@ -56,79 +75,106 @@ Abre http://localhost:5173.
 
 ```bash
 npm run build
+
+# Con PM2 (recomendado)
+pm2 start ../ecosystem.config.js
+pm2 save
+
+# Manual
 cd server && npm start
-# Sirve en :3002: SPA estática + API
+# Sirve SPA + API en :3002
 ```
 
 ## Tests
 
 ```bash
-# Tests frontend (Vitest)
+# Tests frontend (Vitest) — 94 tests
 npm test
 
-# Tests backend (Jest)
+# Tests backend (Jest + Supertest) — 10 tests
 cd server && npm test
-
-# Coverage
-npm run test:coverage
 ```
 
-## Lint y Formato
+## Scripts
+
+| Comando | Descripción |
+|---|---|
+| `npm run dev` | Dev server con HMR (Vite) |
+| `npm run build` | TypeScript + Vite build + PWA SW |
+| `npm run lint` | ESLint flat config |
+| `npm run lint:fix` | ESLint auto-fix |
+| `npm run format` | Prettier format |
+| `npm run format:check` | Prettier check |
+| `npm run typecheck` | tsc --noEmit |
+| `npm run analyze` | Build + bundle visualizer |
+| `npm run test:coverage` | Coverage report |
+
+## Seguridad
+
+- **CORS whitelist**: solo orígenes configurados via `CORS_ORIGINS`
+- **Helmet**: headers HTTP de seguridad (CSP, HSTS, X-Frame-Options, etc.)
+- **Rate limiting**: 100 req/min por IP en todas las rutas `/api/`
+- **Queries parametrizadas**: todas las consultas Cosmos DB usan `@params` vinculados (sin interpolación de strings)
+- **Graceful shutdown**: SIGTERM/SIGINT cierran conexiones limpiamente
+
+## Bundle
 
 ```bash
-npm run lint         # ESLint
-npm run lint:fix     # ESLint con --fix
-npm run format       # Prettier write
-npm run format:check # Prettier check
+npm run build
+npm run analyze  # Abre treemap visual en dist/stats.html
 ```
 
-## Build
-
-```bash
-npm run build       # Frontend SPA bundle en dist/
-npm run preview     # Servir build localmente
-```
+| Chunk | Tamaño | Gzip |
+|---|---|---|
+| `index` (app shell) | 298 KB | 89 KB |
+| `react` (React + ReactDOM + Router) | 48 KB | 17 KB |
+| `CompetitionPage` | 29 KB | 6 KB |
+| `MatchDetailPage` | 12 KB | 3 KB |
+| `AnalysisPage` | 9 KB | 3 KB |
+| `PlayerProfilePage` | 6 KB | 2 KB |
+| `HistoryEditionPage` | 6 KB | 2 KB |
 
 ## Estructura
 
 ```
 dashboard/
-├── src/
-│   ├── domain/             # Entidades y contratos de repositorios
-│   ├── data/               # Implementaciones de repositorios + datasources
-│   ├── infrastructure/     # DI, HTTP client, logging, cache, errors
-│   ├── presentation/       # UI: páginas, componentes, hooks
-│   │   ├── pages/
-│   │   ├── components/
-│   │   │   ├── ui/         # Componentes reusables (Button, Card, ...)
-│   │   │   ├── layout/     # PageShell, Navbar, Footer
-│   │   │   ├── hero/
-│   │   │   ├── matches/
-│   │   │   ├── stats/
-│   │   │   ├── standings/
-│   │   │   ├── competition/
-│   │   │   └── ...
-│   │   └── hooks/          # Hooks de React para fetch + estado
-│   ├── shared/             # Utilidades, tipos compartidos, sanitize
-│   └── App.tsx
-├── server/                 # Backend Express
-│   ├── controllers/        # Handlers de rutas (1 por dominio)
-│   ├── services/           # Lógica compartida (cache, cosmos, etc.)
-│   ├── middleware/         # errorHandler, etc.
-│   ├── utils/              # mappers, enrichers
-│   └── routes/             # Definición de rutas
-├── public/                 # Assets estáticos, manifest.json, robots.txt
-└── tests/                  # Vitest unit/integration tests
+├── src/                      # Frontend (Clean Architecture)
+│   ├── domain/               # Entidades + interfaces de repositorio
+│   ├── data/                 # Repositorios (Api*Repository) + mappers con Zod
+│   ├── infrastructure/       # DI Container, HttpClient, cache, logging, ErrorBoundary
+│   ├── presentation/
+│   │   ├── pages/            # 6 páginas (lazy loaded)
+│   │   ├── components/       # ~40 componentes con React.memo
+│   │   │   ├── ui/           # Accordion, ErrorState, Skeleton, ImageWithFallback, etc.
+│   │   │   ├── hero/         # HeroMatch, BroadcastScore
+│   │   │   ├── match-detail/ # 9 subcomponentes (MatchScoreCard, MatchLineups, etc.)
+│   │   │   ├── matches/      # MatchCard, MatchGrid, MatchTicker, MatchFilterBar
+│   │   │   ├── stats/        # TopScorers, Assists, Ratings, TeamOfWeek, StatRow
+│   │   │   ├── competition/  # HistoryTab, BracketTree, HistoricalMatchStatsModal
+│   │   │   ├── explorer/     # PlayerSearch, PlayerProfile, TeamCard
+│   │   │   ├── news/         # NewsFeed, NewsCard
+│   │   │   ├── trends/       # BettingTrends, MatchTips
+│   │   │   └── standings/    # GroupStandings
+│   │   └── hooks/            # 13 hooks con AbortController
+│   ├── shared/               # Utilidades, tipos globales
+│   └── App.tsx               # Layout shell + lazy routes + ErrorBoundary
+├── server/                   # Backend Express
+│   ├── controllers/          # 9 controllers (~130 líneas c/u)
+│   ├── services/             # cacheService (thundering herd), mappers, enrichers
+│   ├── middleware/            # errorHandler + helmet/rate-limit (en index.js)
+│   ├── utils/                # mappers, helpers
+│   └── routes/               # football.js (rutas a controllers)
+├── public/                   # favicon.svg, manifest.json, robots.txt, sitemap.xml
+├── tests/                    # 94 tests Vitest (componentes + hooks + mappers)
+└── dist/                     # Build output (SPA + SW + workbox)
 ```
 
-## Deploy
+## Pre-commit
 
-PM2 está configurado en `server/ecosystem.config.js`:
+El proyecto usa **Husky + lint-staged**. Al hacer commit se ejecuta:
 
-```bash
-pm2 start server/ecosystem.config.js
-pm2 save
-```
+1. `prettier --write` en archivos staged `.ts`, `.tsx`, `.json`, `.css`, `.md`
+2. `eslint --fix` en archivos staged `.ts`, `.tsx`
 
 ## Licencia
 

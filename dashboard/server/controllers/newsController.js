@@ -39,7 +39,8 @@ async function getNewsByGame(req, res, next) {
     const { id } = req.params;
 
     const news = await cosmos.queryAll('news', {
-      query: `SELECT * FROM c WHERE c.scope = 'game' AND c.gameId = ${Number(id)} ORDER BY c.publishDate DESC`,
+      query: 'SELECT * FROM c WHERE c.scope = @scope AND c.gameId = @gid ORDER BY c.publishDate DESC',
+      parameters: [{ name: '@scope', value: 'game' }, { name: '@gid', value: Number(id) }],
     });
     res.json(news.map(n => ({
       id: n.id,

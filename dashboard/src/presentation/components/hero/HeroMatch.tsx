@@ -81,7 +81,12 @@ export function HeroMatch({ game, compact = false }: HeroMatchProps) {
             )}
           </div>
 
-          <div aria-live={isLive ? 'polite' : 'off'} aria-atomic="true" role="status" aria-label="Marcador del partido destacado">
+          <div
+            aria-live={isLive ? 'polite' : 'off'}
+            aria-atomic="true"
+            role="status"
+            aria-label="Marcador del partido destacado"
+          >
             <BroadcastScore
               homeScore={game.homeTeam.score}
               awayScore={game.awayTeam.score}

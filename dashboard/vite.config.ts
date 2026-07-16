@@ -3,6 +3,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { visualizer } from 'rollup-plugin-visualizer'
+import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
 const visualizerPlugin = visualizer({
@@ -14,7 +15,35 @@ const visualizerPlugin = visualizer({
 })
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), tailwindcss(), ...(mode === 'analyze' ? [visualizerPlugin] : [])],
+  plugins: [
+    react(),
+    tailwindcss(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.svg'],
+      manifest: {
+        name: 'Mundialista 2026',
+        short_name: 'Mundialista',
+        description: 'Centro de comando de la Copa Mundial FIFA 2026',
+        start_url: '/',
+        display: 'standalone',
+        background_color: '#070B15',
+        theme_color: '#070B15',
+        icons: [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml' }],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        runtimeCaching: [
+          {
+            urlPattern: /^https?:\/\/imagecache\.365scores\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: { cacheName: 'images', expiration: { maxEntries: 50 } },
+          },
+        ],
+      },
+    }),
+    ...(mode === 'analyze' ? [visualizerPlugin] : []),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

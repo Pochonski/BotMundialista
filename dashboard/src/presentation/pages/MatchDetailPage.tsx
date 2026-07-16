@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useGameDetail } from '@/presentation/hooks/useGameDetail'
+import { ErrorState } from '@/presentation/components/ui/ErrorState'
 import { MatchHeader } from '@/presentation/components/match-detail/MatchHeader'
 import { MatchScoreCard } from '@/presentation/components/match-detail/MatchScoreCard'
 import { MatchStatsTable } from '@/presentation/components/match-detail/MatchStatsTable'
@@ -14,9 +15,10 @@ export function MatchDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const gameId = id ? parseInt(id, 10) : null
-  const { game, stats, lineups, timeline, predictions, tips, suggestions, news, loading } =
+  const { game, stats, lineups, timeline, predictions, tips, suggestions, news, loading, error } =
     useGameDetail(gameId)
 
+  if (error) return <ErrorState message={error} fullPage />
   if (loading) {
     return (
       <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">

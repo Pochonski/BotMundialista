@@ -56,10 +56,10 @@ async function getMatches(req, res, next) {
 
 async function getLiveMatches(req, res, next) {
   try {
-    const query = {
-      query: `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} AND c.statusGroup = 1 ORDER BY c.startTime ASC`,
-    };
-    const games = await cosmos.queryAll('games', query);
+    const games = await cosmos.queryAll('games', {
+      query: 'SELECT * FROM c WHERE c.competitionId = @compId AND c.statusGroup = 1 ORDER BY c.startTime ASC',
+      parameters: [{ name: '@compId', value: COMPETITION_PK }],
+    });
     res.json(games.map(enrichGame));
   } catch (err) {
     next(err);
@@ -68,22 +68,21 @@ async function getLiveMatches(req, res, next) {
 
 async function getFeaturedMatch(req, res, next) {
   try {
-    let query = {
-      query: `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} AND c.statusGroup = 1 ORDER BY c.startTime ASC`,
-    };
-    let games = await cosmos.queryAll('games', query);
+    const makeQuery = (sg) => ({
+      query: 'SELECT * FROM c WHERE c.competitionId = @compId AND c.statusGroup = @sg ORDER BY c.startTime ' + (sg === 4 ? 'DESC' : 'ASC'),
+      parameters: [{ name: '@compId', value: COMPETITION_PK }, { name: '@sg', value: sg }],
+    });
+    let games = await cosmos.queryAll('games', makeQuery(1));
 
     if (games.length === 0) {
-      query.query = `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} AND c.statusGroup = 2 ORDER BY c.startTime ASC`;
-      games = await cosmos.queryAll('games', query);
+      games = await cosmos.queryAll('games', makeQuery(2));
       const now = new Date();
       const GRACE_MS = 3 * 60 * 60 * 1000;
       games = games.filter(g => !g.startTime || new Date(g.startTime).getTime() > now.getTime() - GRACE_MS);
     }
 
     if (games.length === 0) {
-      query.query = `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} AND c.statusGroup = 4 ORDER BY c.startTime DESC`;
-      games = await cosmos.queryAll('games', query);
+      games = await cosmos.queryAll('games', makeQuery(4));
     }
 
     const game = games[0] || null;
@@ -99,7 +98,8 @@ async function getMatchById(req, res, next) {
     const gid = Number(id);
 
     const games = await cosmos.queryAll('games', {
-      query: `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} AND c.id = ${gid}`,
+      query: 'SELECT * FROM c WHERE c.competitionId = @compId AND c.id = @gid',
+      parameters: [{ name: '@compId', value: COMPETITION_PK }, { name: '@gid', value: gid }],
     });
     if (games.length > 0) return res.json(enrichGame(games[0]));
 
@@ -118,7 +118,8 @@ async function getMatchStats(req, res, next) {
     const gid = Number(id);
 
     const snap = await cosmos.queryOne('game_snapshots', {
-      query: `SELECT TOP 1 c.statistics FROM c WHERE c.gameId = ${gid} ORDER BY c._ts DESC`,
+      query: 'SELECT TOP 1 c.statistics FROM c WHERE c.gameId = @gid ORDER BY c._ts DESC',
+      parameters: [{ name: '@gid', value: gid }],
     });
 
     if (snap?.statistics) {
@@ -182,7 +183,8 @@ async function getMatchLineups(req, res, next) {
       const doc = container === 'game_h2h'
         ? await cosmos.getById('game_h2h', String(gid), gid)
         : await cosmos.queryOne('game_overviews', {
-            query: `SELECT * FROM c WHERE c.gameId = ${gid} ORDER BY c._ts DESC`,
+            query: 'SELECT * FROM c WHERE c.gameId = @gid ORDER BY c._ts DESC',
+            parameters: [{ name: '@gid', value: gid }],
           });
       const home = extractLineup(doc?.game?.homeCompetitor);
       const away = extractLineup(doc?.game?.awayCompetitor);
@@ -206,7 +208,8 @@ async function getMatchPreStats(req, res, next) {
     const gid = Number(id);
 
     const pre = await cosmos.queryOne('game_pre_stats', {
-      query: `SELECT * FROM c WHERE c.gameId = ${gid}`,
+      query: 'SELECT * FROM c WHERE c.gameId = @gid',
+      parameters: [{ name: '@gid', value: gid }],
     });
     if (pre?.statistics) {
       return res.json(pre.statistics.map(s => ({
@@ -256,7 +259,8 @@ async function getMatchTrends(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
     const trends = await cosmos.queryAll('trends', {
-      query: `SELECT * FROM c WHERE c.scope = 'game' AND c.gameId = ${gid} ORDER BY c.percentage DESC`,
+      query: 'SELECT * FROM c WHERE c.scope = @scope AND c.gameId = @gid ORDER BY c.percentage DESC',
+      parameters: [{ name: '@scope', value: 'game' }, { name: '@gid', value: gid }],
     });
 
     const seen = new Set();
@@ -279,7 +283,8 @@ async function getMatchPredictions(req, res, next) {
     const gid = Number(id);
 
     const pred = await cosmos.queryOne('predictions', {
-      query: `SELECT * FROM c WHERE c.gameId = ${gid}`,
+      query: 'SELECT * FROM c WHERE c.gameId = @gid',
+      parameters: [{ name: '@gid', value: gid }],
     });
     if (pred?.promotedPredictions?.predictions) {
       return res.json(pred.promotedPredictions.predictions.map(p => ({
@@ -318,7 +323,8 @@ async function getMatchTimeline(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
     const snap = await cosmos.queryOne('game_snapshots', {
-      query: `SELECT TOP 1 c.timeline, c.events FROM c WHERE c.gameId = ${gid} ORDER BY c._ts DESC`,
+      query: 'SELECT TOP 1 c.timeline, c.events FROM c WHERE c.gameId = @gid ORDER BY c._ts DESC',
+      parameters: [{ name: '@gid', value: gid }],
     });
 
     const events = snap?.timeline || snap?.events || [];
@@ -341,7 +347,8 @@ async function getMatchSuggestions(req, res, next) {
 
     let game;
     const games = await cosmos.queryAll('games', {
-      query: `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} AND c.id = ${gid}`,
+      query: 'SELECT * FROM c WHERE c.competitionId = @compId AND c.id = @gid',
+      parameters: [{ name: '@compId', value: COMPETITION_PK }, { name: '@gid', value: gid }],
     });
     if (games.length > 0) {
       game = games[0];

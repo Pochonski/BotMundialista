@@ -21,7 +21,10 @@ export const ImageWithFallback = memo(function ImageWithFallback({
   if (showFallback) {
     if (fallback) return <>{fallback}</>
     return (
-      <div className={`bg-bg-elevated flex items-center justify-center ${className ?? ''}`} aria-hidden="true">
+      <div
+        className={`bg-bg-elevated flex items-center justify-center ${className ?? ''}`}
+        aria-hidden="true"
+      >
         <span className="font-display text-text-muted text-sm font-bold">
           {fallbackInitial?.charAt(0).toUpperCase() ?? '?'}
         </span>

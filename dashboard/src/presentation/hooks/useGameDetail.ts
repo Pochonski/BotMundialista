@@ -33,11 +33,13 @@ export function useGameDetail(gameId: number | null) {
     news: [],
   })
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetch = useCallback(
     async (signal?: AbortSignal) => {
       if (gameId == null) return
       setLoading(true)
+      setError(null)
       const [game, stats, lineups, timeline, predictions, tips, suggestions, news] = await Promise.all([
         repo.getGameById(gameId).catch(() => null),
         repo.getGameStats(gameId).catch(() => [] as GameStat[]),
@@ -49,6 +51,9 @@ export function useGameDetail(gameId: number | null) {
         apiClient.get<News[]>(ENDPOINTS.newsByGame(gameId), { signal }).catch(() => [] as News[]),
       ])
       if (!signal?.aborted) {
+        if (game == null && stats.length === 0) {
+          setError('No se pudieron cargar los datos del partido')
+        }
         setData({ game, stats, lineups, timeline, predictions, tips, suggestions, news })
         setLoading(false)
       }
@@ -58,9 +63,12 @@ export function useGameDetail(gameId: number | null) {
 
   useEffect(() => {
     const ctrl = new AbortController()
-    fetch(ctrl.signal)
+    fetch(ctrl.signal).catch((e) => {
+      if (e.name !== 'AbortError') setError(e.message)
+      setLoading(false)
+    })
     return () => ctrl.abort()
   }, [fetch])
 
-  return { ...data, loading, refetch: () => fetch() }
+  return { ...data, loading, error, refetch: () => fetch() }
 }

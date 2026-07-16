@@ -4,6 +4,7 @@ const images = require(path.join(__dirname, '..', '..', '..', 'services', 'image
 const { enrichGame } = require('../utils/mappers');
 
 const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
+const COMPETITION_PK = String(MUNDIAL_ID);
 
 async function getTeams(req, res, next) {
   try {
@@ -36,7 +37,8 @@ async function getTeamById(req, res, next) {
     const { id } = req.params;
     const tid = Number(id);
     const teams = await cosmos.queryAll('catalog', {
-      query: `SELECT * FROM c WHERE c.entityType = 'competitors' AND c.id = ${tid}`,
+      query: 'SELECT * FROM c WHERE c.entityType = @etype AND c.id = @tid',
+      parameters: [{ name: '@etype', value: 'competitors' }, { name: '@tid', value: tid }],
     });
     if (teams.length === 0) return res.status(404).json({ error: 'Equipo no encontrado' });
 
@@ -61,7 +63,8 @@ async function getTeamMatches(req, res, next) {
     const { id } = req.params;
     const tid = Number(id);
     const games = await cosmos.queryAll('games', {
-      query: `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} AND (c.homeCompetitor.id = ${tid} OR c.awayCompetitor.id = ${tid}) ORDER BY c.startTime DESC`,
+      query: 'SELECT * FROM c WHERE c.competitionId = @compId AND (c.homeCompetitor.id = @tid OR c.awayCompetitor.id = @tid) ORDER BY c.startTime DESC',
+      parameters: [{ name: '@compId', value: COMPETITION_PK }, { name: '@tid', value: tid }],
     });
     res.json(games.map(enrichGame));
   } catch (err) {

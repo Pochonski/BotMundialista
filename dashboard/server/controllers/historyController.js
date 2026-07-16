@@ -5,6 +5,7 @@ const { parseHistoryDoc } = require('../utils/mappers');
 const { getCompetitorMap } = require('../services/cacheService');
 
 const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
+const COMPETITION_PK = String(MUNDIAL_ID);
 const HISTORY_CACHE_TTL_MS = 5 * 60 * 1000;
 
 let _historyCache = { data: null, expiry: 0 };
@@ -15,9 +16,8 @@ async function getHistory(req, res, next) {
       return res.json(_historyCache.data);
     }
 
-    let docs = await cosmos.queryAll('competition_history', {
-      query: `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} ORDER BY c.seasonNum DESC`,
-    });
+    const qBase = { query: 'SELECT c.id, c.competitionId, c.seasonNum, c.title, c.secondaryTitle, c.entityId, c.hasTable, c.hasGroup, c.group, c._fetchedAt FROM c WHERE c.competitionId = @compId ORDER BY c.seasonNum DESC', parameters: [{ name: '@compId', value: COMPETITION_PK }] };
+    let docs = await cosmos.queryAll('competition_history', qBase);
 
     if (docs.length < 20) {
       try {
@@ -35,9 +35,7 @@ async function getHistory(req, res, next) {
             return cosmos.upsert('competition_history', doc).catch(() => {});
           });
           await Promise.all(upsertPromises);
-          docs = await cosmos.queryAll('competition_history', {
-            query: `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} ORDER BY c.seasonNum DESC`,
-          });
+          docs = await cosmos.queryAll('competition_history', qBase);
         }
       } catch (e) {
         req.log?.warn?.({ err: e.message }, 'Error en fallback 365scores para history');
@@ -57,9 +55,8 @@ async function getHistory(req, res, next) {
 
 async function getHistoryStats(req, res, next) {
   try {
-    let docs = await cosmos.queryAll('competition_history', {
-      query: `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} ORDER BY c.seasonNum ASC`,
-    });
+    const qBase = { query: 'SELECT c.id, c.competitionId, c.seasonNum, c.title, c.secondaryTitle, c.entityId, c.hasTable, c.hasGroup, c.group, c._fetchedAt FROM c WHERE c.competitionId = @compId ORDER BY c.seasonNum ASC', parameters: [{ name: '@compId', value: COMPETITION_PK }] };
+    let docs = await cosmos.queryAll('competition_history', qBase);
 
     if (docs.length < 20) {
       try {
@@ -77,9 +74,7 @@ async function getHistoryStats(req, res, next) {
             return cosmos.upsert('competition_history', doc).catch(() => {});
           });
           await Promise.all(upsertPromises);
-          docs = await cosmos.queryAll('competition_history', {
-            query: `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} ORDER BY c.seasonNum ASC`,
-          });
+          docs = await cosmos.queryAll('competition_history', qBase);
         }
       } catch (e) {
         req.log?.warn?.({ err: e.message }, 'Error en fallback 365scores para history stats');

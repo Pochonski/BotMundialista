@@ -1,38 +1,35 @@
 {
-  "name": "botmundialista",
+  "name": "scorehub",
   "version": "1.0.0",
-  "description": "Asistente de Fútbol y Apuestas por WhatsApp y Telegram",
+  "description": "ScoreHub - Asistente de Fútbol y Apuestas",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
     "start:telegram": "node telegramBot.js",
     "admin": "node admin/server.js",
-    "cosmos:bootstrap": "node scripts/cosmos-bootstrap.js",
-    "cosmos:refresh": "node services/cosmosRefresh.js",
-    "cosmos:poller": "node services/liveGamesPoller.js",
-    "test:365": "node scripts/test-365-mundial.js",
-    "azure:pause-neighbours": "powershell -ExecutionPolicy Bypass -File scripts/pause-non-project-azure.ps1",
-    "azure:resume-neighbours": "powershell -ExecutionPolicy Bypass -File scripts/resume-non-project-azure.ps1",
-    "azure:pg-stop": "powershell -ExecutionPolicy Bypass -File scripts/stop-botmundialista-pg.ps1",
-    "azure:pg-start": "powershell -ExecutionPolicy Bypass -File scripts/start-botmundialista-pg.ps1",
-    "azure:watchdog-pg": "powershell -ExecutionPolicy Bypass -File scripts/watchdog-delete-ephemeral-postgres.ps1",
-    "azure:install-watchdog": "powershell -ExecutionPolicy Bypass -Command \"schtasks /create /tn 'WatchdogPostgresEphemeral' /tr 'powershell -ExecutionPolicy Bypass -File C:\\Users\\josep\\Documents\\Joseph\\Proyectos\\BotMundialista\\scripts\\watchdog-delete-ephemeral-postgres.ps1' /sc hourly /mo 1 /ru SYSTEM /f\""
+    "start:dashboard": "node dashboard/server/index.js",
+
+    "test:dashboard": "cd dashboard/server && npm test"
   },
   "dependencies": {
-    "@azure/cosmos": "^4.9.3",
-    "@azure/identity": "^4.13.1",
     "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.0",
     "express": "^4.18.2",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.3.0",
     "node-cron": "^4.4.1",
     "node-fetch": "^2.7.0",
     "node-telegram-bot-api": "^1.1.1",
     "pg": "^8.22.0",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
     "qrcode-terminal": "^0.12.0",
     "tesseract.js": "^7.0.0",
     "whatsapp-web.js": "^1.31.0"
   },
   "devDependencies": {
+    "pino-pretty": "^13.1.3",
     "tailwindcss": "^3.4.19"
   }
 }

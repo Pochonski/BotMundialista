@@ -20,15 +20,15 @@ function check(name, cond) {
 
 console.log('-- matchSearch --');
 for (const fn of requiredMatchSearch) check(`exports.${fn}`, typeof matchSearch[fn] === 'function');
-check('MUNDIAL_ID === 5930', matchSearch.MUNDIAL_ID === 5930);
+check('COMPETITION_ID === 5930', matchSearch.COMPETITION_ID === 5930);
 
 console.log('\n-- mundialista365Handler --');
 for (const fn of requiredHandler) check(`exports.${fn}`, typeof mundialista365[fn] === 'function');
-check('MUNDIAL_ID === 5930', mundialista365.MUNDIAL_ID === 5930);
+check('COMPETITION_ID === 5930', mundialista365.COMPETITION_ID === 5930);
 
 console.log('\n-- mundialistaStatsHandler --');
 for (const fn of requiredStatsHandler) check(`exports.${fn}`, typeof mundialistaStats[fn] === 'function');
-check('MUNDIAL_ID === 5930', mundialistaStats.MUNDIAL_ID === 5930);
+check('COMPETITION_ID === 5930', mundialistaStats.COMPETITION_ID === 5930);
 
 // Validar regex de /tip parsing (sin tocar API ni Cosmos)
 const { execSync } = require('child_process');

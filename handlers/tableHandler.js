@@ -1,16 +1,18 @@
-// Handler de tablas de posiciones - Mundial 2026
+// Handler de tablas de posiciones
 const cache = require('../services/mundialCache');
+const { getCompetitionName } = require('../services/competitionName');
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 const { formatTabla, formatGroupTable } = require('../utils/formatters');
 
 const LIGAS_SOPORTADAS = {
-  'mundial': { id: 5930, nombre: 'Mundial 2026' },
-  'mundial 2026': { id: 5930, nombre: 'Mundial 2026' },
-  'world cup': { id: 5930, nombre: 'Mundial 2026' },
-  'wc': { id: 5930, nombre: 'Mundial 2026' },
-  'copa del mundo': { id: 5930, nombre: 'Mundial 2026' },
+  'mundial': { id: COMPETITION_ID, nombre: null },
+  'mundial 2026': { id: COMPETITION_ID, nombre: null },
+  'world cup': { id: COMPETITION_ID, nombre: null },
+  'wc': { id: COMPETITION_ID, nombre: null },
+  'copa del mundo': { id: COMPETITION_ID, nombre: null },
 };
 
-const MENSAJE_NO_SOPORTADO = (liga) => `⚠️ Solo soporto tablas del Mundial 2026 por ahora. La liga "${liga}" no está disponible en mi fuente actual.`;
+const MENSAJE_NO_SOPORTADO = (liga) => `⚠️ Solo soporto tablas de la competencia actual por ahora. La liga "${liga}" no está disponible en mi fuente actual.`;
 
 async function getTabla(liga) {
   try {
@@ -32,7 +34,7 @@ async function getTabla(liga) {
       return `⚠️ Liga no reconocida. Prueba: "mundial", "world cup", "wc", "copa del mundo".`;
     }
     if (ligaKey === LIGAS_SOPORTADAS.mundial.id) {
-      return await getTablaMundial();
+      return await getTablaMundial(ligaNombre);
     }
     return MENSAJE_NO_SOPORTADO(ligaNombre || ligaKey);
   } catch (error) {
@@ -41,11 +43,11 @@ async function getTabla(liga) {
   }
 }
 
-async function getTablaMundial() {
+async function getTablaMundial(ligaNombre) {
   try {
     const standings = await cache.getWorldCupStandings();
     if (!standings || standings.length === 0) {
-      return `⚠️ No hay datos de tabla del Mundial disponibles.`;
+      return `⚠️ No hay datos de tabla disponibles.`;
     }
     const gruposMap = {};
     for (const standing of standings) {
@@ -71,14 +73,15 @@ async function getTablaMundial() {
     if (grupos.length === 0) {
       return `⚠️ No encontré datos por grupo en la respuesta.`;
     }
-    let msg = `🏆 *TABLA MUNDIAL 2026*\n\n`;
+    const compName = ligaNombre || await getCompetitionName(COMPETITION_ID);
+    let msg = `🏆 *TABLA ${compName}*\n\n`;
     for (const g of grupos) {
       msg += formatGroupTable(gruposMap[g], g) + '\n\n';
     }
     return msg.trim();
   } catch (error) {
     console.error('Error getTablaMundial:', error);
-    return `⚠️ No pude obtener la tabla del Mundial.`;
+    return `⚠️ No pude obtener la tabla.`;
   }
 }
 
@@ -90,7 +93,7 @@ async function getTablaGrupoMundial(grupo) {
     }
     const standings = await cache.getWorldCupStandings();
     if (!standings || standings.length === 0) {
-      return `⚠️ No hay datos de tabla del Mundial disponibles.`;
+      return `⚠️ No hay datos de tabla disponibles.`;
     }
     for (const standing of standings) {
       const grupoLetra = standing.name?.match(/Group\s+([A-L])/i)?.[1]?.toUpperCase();

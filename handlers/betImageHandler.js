@@ -1,27 +1,10 @@
 // Handler principal para procesar imágenes de apuestas
 const { pool, testConnection } = require('../database/connection');
-const { ocrService } = require('../services/ocrService');
+const ocrService = require('../services/ocrService');
 const { parseBetText, buscarPartidoReal, toJSON } = require('../services/betParserService');
 const { guardarImagen, generarNombreArchivo } = require('../services/imageStorageService');
 const { formatTeamWithFlag } = require('../services/countryFlagsService');
 const betTrackingEngine = require('../services/betTrackingEngine');
-
-/**
- * Helper para enviar mensajes de forma segura (maneja errores de Puppeteer/WhatsApp)
- */
-async function safeReply(message, text) {
-  try {
-    await safeReply(text);
-  } catch (error) {
-    if (error.message?.includes('Execution context') ||
-        error.message?.includes('Protocol error') ||
-        error.message?.includes('target closed')) {
-      console.error('⚠️ WhatsApp desconectado, no se pudo enviar respuesta');
-    } else {
-      console.error('Error enviando mensaje:', error.message);
-    }
-  }
-}
 
 /**
  * Procesa una imagen de apuesta
@@ -32,6 +15,20 @@ async function safeReply(message, text) {
 async function procesarImagenApuesta(client, message, media) {
   const userId = message.from;
   const mediaBuffer = media.data;
+
+  async function safeReply(text) {
+    try {
+      await message.reply(text);
+    } catch (error) {
+      if (error.message?.includes('Execution context') ||
+          error.message?.includes('Protocol error') ||
+          error.message?.includes('target closed')) {
+        console.error('⚠️ WhatsApp desconectado, no se pudo enviar respuesta');
+      } else {
+        console.error('Error enviando mensaje:', error.message);
+      }
+    }
+  }
 
   // Verificar conexión a BD
   const dbOk = await testConnection();

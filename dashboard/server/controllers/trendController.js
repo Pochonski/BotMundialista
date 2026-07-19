@@ -1,17 +1,15 @@
-const path = require('path');
-const cosmos = require(path.join(__dirname, '..', '..', '..', 'database', 'cosmos'));
+const { pool } = require('../../../database/connection');
 const { enrichTrend } = require('../utils/mappers');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
-const COMPETITION_PK = String(MUNDIAL_ID);
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 
 async function getCompetitionTrends(req, res, next) {
   try {
-    const trends = await cosmos.queryAll('trends', {
-      query: 'SELECT * FROM c WHERE c.scope = @scope AND c.competitionId = @compId ORDER BY c.percentage DESC',
-      parameters: [{ name: '@scope', value: 'competition' }, { name: '@compId', value: COMPETITION_PK }],
-    });
-
+    const { rows } = await pool.query(
+      'SELECT data FROM trends WHERE scope = $1 AND entity_id = $2',
+      ['competition', COMPETITION_ID]
+    );
+    const trends = rows.map(r => r.data);
     const seen = new Set();
     const unique = trends.filter(t => {
       const key = `${t.betCTA || ''}|${t.lineTypeId}`;
@@ -19,7 +17,6 @@ async function getCompetitionTrends(req, res, next) {
       seen.add(key);
       return true;
     });
-
     res.json(unique.slice(0, 10).map(enrichTrend));
   } catch (err) {
     next(err);

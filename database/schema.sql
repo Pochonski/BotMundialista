@@ -1,4 +1,4 @@
--- Schema para BotMundialista
+-- Schema para ScoreHub
 -- Ejecutar primero en MySQL: CREATE DATABASE botmundialista;
 
 -- Tabla de usuarios

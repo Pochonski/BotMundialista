@@ -196,14 +196,14 @@ async function messageHandler(client, message) {
       } else {
         await registrarUsuario(userId, alias);
         userStates.delete(userId);
-        await safeReply(message, `✅ ¡Perfecto ${alias}! Soy *BotMundialista*, tu asistente de fútbol y apuestas.\n\nEscribe *ayuda* para ver qué puedo hacer.`);
+        await safeReply(message, `✅ ¡Perfecto ${alias}! Soy *ScoreHub*, tu asistente de fútbol y apuestas.\n\nEscribe *ayuda* para ver qué puedo hacer.`);
       }
       return;
     }
 
     // Primer mensaje - pedir alias
     userStates.set(userId, { value: ESTADOS_USUARIO.ESPERANDO_ALIAS, lastAccess: Date.now() });
-    await safeReply(message, '¡Hola! 👋 Soy *BotMundialista*, tu asistente de fútbol.\n\n¿Cómo quieres que te llame? Escribe tu alias:');
+    await safeReply(message, '¡Hola! 👋 Soy *ScoreHub*, tu asistente de fútbol.\n\n¿Cómo quieres que te llame? Escribe tu alias:');
     return;
   }
 
@@ -279,7 +279,7 @@ async function messageHandler(client, message) {
 
   // Si Gemini no entendió, usar parser local
   if (!parsedFromGemini) {
-    parsed = parse(text);
+    parsed = await parse(text);
     console.log(`🎯 Parser local: ${parsed.intent}`);
   }
 
@@ -309,7 +309,7 @@ async function messageHandler(client, message) {
     if (!response) {
     switch (currentParsed.intent) {
       case INTENTOS.SALUDO:
-        response = `¡Hola ${user.alias}! 👋🏆 Bienvenido al asistente del *Mundial 2026*\n\n` +
+        response = `¡Hola ${user.alias}! 👋🏆 Bienvenido al asistente del *ScoreHub*\n\n` +
           `📋 *Comandos:*\n` +
           `  "¿Cómo quedó [equipo]?"\n` +
           `  "[equipo] vs [equipo]"\n` +
@@ -321,7 +321,7 @@ async function messageHandler(client, message) {
         break;
 
       case INTENTOS.HELP:
-        response = `📖 *COMANDOS - MUNDIAL 2026*\n\n` +
+        response = `📖 *COMANDOS - ScoreHub*\n\n` +
           `⚽ *Resultados:*\n` +
           `  "¿Cómo quedó Brasil?"\n` +
           `  "México vs Argentina"\n\n` +

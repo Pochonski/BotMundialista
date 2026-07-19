@@ -1,10 +1,7 @@
-const path = require('path');
-const cosmos = require(path.join(__dirname, '..', '..', '..', 'database', 'cosmos'));
-const scores365 = require(path.join(__dirname, '..', '..', '..', 'services', 'scores365Service'));
-const { enrichGame, enrichTip, enrichTrend, extractLineup, buildMatchupId, SCORE_STAT_IDS } = require('../utils/mappers');
+const { pool } = require('../../../database/connection');
+const { enrichGame, enrichTrend, extractLineup, buildMatchupId, SCORE_STAT_IDS } = require('../utils/mappers');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
-const COMPETITION_PK = String(MUNDIAL_ID);
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 
 async function getMatches(req, res, next) {
   try {
@@ -12,43 +9,41 @@ async function getMatches(req, res, next) {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(50, parseInt(req.query.limit) || 20);
     const offset = (page - 1) * limit;
-    const params = [{ name: '@compId', value: COMPETITION_PK }];
-    let query = 'SELECT c.id, c.competitionId, c.statusGroup, c.startTime, c.stageName, c.groupNum, c.statusText, c.minute, c.homeCompetitor, c.awayCompetitor FROM c WHERE c.competitionId = @compId';
+
+    let query = 'SELECT data FROM games WHERE competition_id = $1';
+    const params = [COMPETITION_ID];
 
     if (statusGroup) {
       const groups = statusGroup.split(',').map(Number).filter(n => !isNaN(n));
       if (groups.length > 0) {
-        const groupParams = groups.map((g, i) => {
-          params.push({ name: `@sg${i}`, value: g });
-          return `@sg${i}`;
-        });
-        query += ` AND c.statusGroup IN (${groupParams.join(',')})`;
+        query += ` AND status_group IN (${groups.map((_, i) => `$${params.length + i + 1}`).join(',')})`;
+        params.push(...groups);
       }
-    }
-    if (stage) {
-      query += ' AND CONTAINS(LOWER(c.stageName), @stage)';
-      params.push({ name: '@stage', value: stage.toLowerCase() });
     }
     if (teamId) {
       const tid = Number(teamId);
       if (!isNaN(tid)) {
-        params.push({ name: '@tid', value: tid });
-        query += ' AND (c.homeCompetitor.id = @tid OR c.awayCompetitor.id = @tid)';
+        query += ` AND (home_competitor_id = $${params.length + 1} OR away_competitor_id = $${params.length + 1})`;
+        params.push(tid);
       }
     }
 
-    query += ' ORDER BY c.startTime DESC OFFSET @offset LIMIT @limit';
-    params.push({ name: '@offset', value: offset }, { name: '@limit', value: limit });
-
-    let games = await cosmos.queryAll('games', { query, parameters: params });
-
     if (!statusGroup || statusGroup === '2') {
-      const now = new Date();
-      const GRACE_MS = 3 * 60 * 60 * 1000;
-      games = games.filter(g => g.statusGroup !== 2 || !g.startTime || new Date(g.startTime).getTime() > now.getTime() - GRACE_MS);
+      query += ' AND (status_group != 2 OR start_time > NOW() - INTERVAL \'3 hours\')';
     }
 
-    res.json(games.map(enrichGame));
+    query += ' ORDER BY start_time DESC';
+
+    const { rows } = await pool.query(query, params);
+    let games = rows.map(r => r.data);
+
+    if (stage) {
+      const q = stage.toLowerCase();
+      games = games.filter(g => (g.stageName || '').toLowerCase().includes(q));
+    }
+
+    const paged = games.slice(offset, offset + limit);
+    res.json(paged.map(enrichGame));
   } catch (err) {
     next(err);
   }
@@ -56,11 +51,11 @@ async function getMatches(req, res, next) {
 
 async function getLiveMatches(req, res, next) {
   try {
-    const games = await cosmos.queryAll('games', {
-      query: 'SELECT * FROM c WHERE c.competitionId = @compId AND c.statusGroup = 1 ORDER BY c.startTime ASC',
-      parameters: [{ name: '@compId', value: COMPETITION_PK }],
-    });
-    res.json(games.map(enrichGame));
+    const { rows } = await pool.query(
+      'SELECT data FROM games WHERE competition_id = $1 AND status_group = 1 ORDER BY start_time DESC',
+      [COMPETITION_ID]
+    );
+    res.json(rows.map(r => enrichGame(r.data)));
   } catch (err) {
     next(err);
   }
@@ -68,25 +63,23 @@ async function getLiveMatches(req, res, next) {
 
 async function getFeaturedMatch(req, res, next) {
   try {
-    const makeQuery = (sg) => ({
-      query: 'SELECT * FROM c WHERE c.competitionId = @compId AND c.statusGroup = @sg ORDER BY c.startTime ' + (sg === 4 ? 'DESC' : 'ASC'),
-      parameters: [{ name: '@compId', value: COMPETITION_PK }, { name: '@sg', value: sg }],
-    });
-    let games = await cosmos.queryAll('games', makeQuery(1));
+    const { rows: live } = await pool.query(
+      'SELECT data FROM games WHERE competition_id = $1 AND status_group = 1 LIMIT 1',
+      [COMPETITION_ID]
+    );
+    if (live.length) return res.json(enrichGame(live[0].data));
 
-    if (games.length === 0) {
-      games = await cosmos.queryAll('games', makeQuery(2));
-      const now = new Date();
-      const GRACE_MS = 3 * 60 * 60 * 1000;
-      games = games.filter(g => !g.startTime || new Date(g.startTime).getTime() > now.getTime() - GRACE_MS);
-    }
+    const { rows: upcoming } = await pool.query(
+      'SELECT data FROM games WHERE competition_id = $1 AND status_group = 2 AND start_time > NOW() - INTERVAL \'3 hours\' ORDER BY start_time ASC LIMIT 1',
+      [COMPETITION_ID]
+    );
+    if (upcoming.length) return res.json(enrichGame(upcoming[0].data));
 
-    if (games.length === 0) {
-      games = await cosmos.queryAll('games', makeQuery(4));
-    }
-
-    const game = games[0] || null;
-    res.json(enrichGame(game));
+    const { rows: recent } = await pool.query(
+      'SELECT data FROM games WHERE competition_id = $1 AND status_group = 4 ORDER BY start_time DESC LIMIT 1',
+      [COMPETITION_ID]
+    );
+    res.json(recent.length ? enrichGame(recent[0].data) : null);
   } catch (err) {
     next(err);
   }
@@ -97,16 +90,13 @@ async function getMatchById(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const games = await cosmos.queryAll('games', {
-      query: 'SELECT * FROM c WHERE c.competitionId = @compId AND c.id = @gid',
-      parameters: [{ name: '@compId', value: COMPETITION_PK }, { name: '@gid', value: gid }],
-    });
-    if (games.length > 0) return res.json(enrichGame(games[0]));
+    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
+    if (!rows.length) return res.status(404).json({ error: 'Partido no encontrado' });
 
-    const overview = await scores365.getGameOverview(gid);
-    if (!overview?.game) return res.status(404).json({ error: 'Partido no encontrado' });
+    const game = rows[0].data?.game;
+    if (!game) return res.status(404).json({ error: 'Partido no encontrado' });
 
-    res.json(enrichGame(overview.game));
+    res.json(enrichGame(game));
   } catch (err) {
     next(err);
   }
@@ -117,32 +107,19 @@ async function getMatchStats(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const snap = await cosmos.queryOne('game_snapshots', {
-      query: 'SELECT TOP 1 c.statistics FROM c WHERE c.gameId = @gid ORDER BY c._ts DESC',
-      parameters: [{ name: '@gid', value: gid }],
-    });
+    const { rows } = await pool.query('SELECT data FROM game_stats WHERE game_id = $1', [gid]);
+    if (!rows.length) return res.json([]);
 
-    if (snap?.statistics) {
-      const stats = snap.statistics.map(s => ({
-        statId: s.statId,
-        label: SCORE_STAT_IDS[s.statId] || `Stat ${s.statId}`,
-        homeValue: s.home,
-        awayValue: s.away,
-      })).filter(s => SCORE_STAT_IDS[s.statId]);
-      return res.json(stats);
-    }
+    const data = rows[0].data;
+    const s = data?.statistics || data?.stats || [];
+    const stats = s.map(stat => ({
+      statId: stat.statId || stat.type,
+      label: SCORE_STAT_IDS[stat.statId || stat.type] || `Stat ${stat.statId || stat.type}`,
+      homeValue: stat.home ?? stat.homeValue ?? stat.preMatchHome ?? 0,
+      awayValue: stat.away ?? stat.awayValue ?? stat.preMatchAway ?? 0,
+    })).filter(s => SCORE_STAT_IDS[s.statId]);
 
-    const pre = await cosmos.getById('game_pre_stats', String(gid), String(gid));
-    if (pre?.statistics) {
-      return res.json(pre.statistics.map(s => ({
-        statId: s.type,
-        label: s.label || SCORE_STAT_IDS[s.type] || `Stat ${s.type}`,
-        homeValue: s.preMatchHome,
-        awayValue: s.preMatchAway,
-      })));
-    }
-
-    res.json([]);
+    res.json(stats);
   } catch (err) {
     next(err);
   }
@@ -152,22 +129,21 @@ async function getMatchH2h(req, res, next) {
   try {
     const { id } = req.params;
     const gid = Number(id);
-    const doc = await cosmos.getById('game_h2h', String(gid), gid);
 
-    if (!doc) return res.json(null);
+    const { rows } = await pool.query('SELECT data FROM game_h2h WHERE game_id = $1', [gid]);
+    if (!rows.length) return res.json({ recentGames: [], h2hGames: [] });
 
+    const doc = rows[0].data;
     const result = { recentGames: [], h2hGames: [] };
-
-    if (doc.game?.homeCompetitor?.recentGames) {
+    if (doc?.game?.homeCompetitor?.recentGames) {
       result.recentGames = doc.game.homeCompetitor.recentGames.map(enrichGame);
     }
-    if (doc.game?.awayCompetitor?.recentGames) {
+    if (doc?.game?.awayCompetitor?.recentGames) {
       result.recentGames = [...result.recentGames, ...doc.game.awayCompetitor.recentGames.map(enrichGame)];
     }
-    if (doc.game?.h2hGames) {
+    if (doc?.game?.h2hGames) {
       result.h2hGames = doc.game.h2hGames.map(enrichGame);
     }
-
     res.json(result);
   } catch (err) {
     next(err);
@@ -179,24 +155,16 @@ async function getMatchLineups(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    for (const container of ['game_h2h', 'game_overviews']) {
-      const doc = container === 'game_h2h'
-        ? await cosmos.getById('game_h2h', String(gid), gid)
-        : await cosmos.queryOne('game_overviews', {
-            query: 'SELECT * FROM c WHERE c.gameId = @gid ORDER BY c._ts DESC',
-            parameters: [{ name: '@gid', value: gid }],
-          });
-      const home = extractLineup(doc?.game?.homeCompetitor);
-      const away = extractLineup(doc?.game?.awayCompetitor);
-      if (home || away) return res.json({ home, away });
-    }
+    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
+    if (!rows.length) return res.json(null);
 
-    const overview = await scores365.getGameOverview(gid);
-    const home = extractLineup(overview?.game?.homeCompetitor);
-    const away = extractLineup(overview?.game?.awayCompetitor);
-    if (home || away) return res.json({ home, away });
+    const game = rows[0].data?.game;
+    if (!game) return res.json(null);
 
-    res.json(null);
+    const home = extractLineup(game.homeCompetitor);
+    const away = extractLineup(game.awayCompetitor);
+    const lineups = { home, away };
+    res.json(!home && !away ? null : lineups);
   } catch (err) {
     next(err);
   }
@@ -207,20 +175,10 @@ async function getMatchPreStats(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const pre = await cosmos.queryOne('game_pre_stats', {
-      query: 'SELECT * FROM c WHERE c.gameId = @gid',
-      parameters: [{ name: '@gid', value: gid }],
-    });
-    if (pre?.statistics) {
-      return res.json(pre.statistics.map(s => ({
-        statId: s.type,
-        label: s.label || SCORE_STAT_IDS[s.type] || `Stat ${s.type}`,
-        homeValue: s.preMatchHome,
-        awayValue: s.preMatchAway,
-      })));
-    }
+    const { rows } = await pool.query('SELECT data FROM game_pre_stats WHERE game_id = $1', [gid]);
+    if (!rows.length) return res.json([]);
 
-    const apiData = await scores365.getGamePreStats(gid);
+    const apiData = rows[0].data;
     if (!apiData?.statistics?.length) return res.json([]);
 
     const byTeam = {};
@@ -232,12 +190,13 @@ async function getMatchPreStats(req, res, next) {
     });
 
     const teamIds = Object.keys(byTeam);
-    res.json({
+    const result = {
       teamStats: teamIds.map(cid => ({
         competitorId: Number(cid),
         stats: byTeam[cid],
       })),
-    });
+    };
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -247,8 +206,22 @@ async function getMatchTips(req, res, next) {
   try {
     const { id } = req.params;
     const gid = Number(id);
-    const tipDoc = await cosmos.getById('betting_tips', `${gid}-composite`, gid);
-    res.json(enrichTip(tipDoc));
+
+    const { rows } = await pool.query(
+      'SELECT data FROM trends WHERE scope = $1 AND game_id = $2',
+      ['game', gid]
+    );
+    const allTrends = rows.map(r => enrichTrend(r.data));
+    const topTrends = allTrends.slice(0, 5);
+
+    const tip = {
+      gameId: gid,
+      confidenceScore: topTrends.length > 0 ? Math.round(topTrends.reduce((s, t) => s + (t.percentage || 0), 0) / topTrends.length) : 0,
+      generatedAt: new Date().toISOString(),
+      topTrends,
+      allTrends,
+    };
+    res.json(tip);
   } catch (err) {
     next(err);
   }
@@ -258,11 +231,12 @@ async function getMatchTrends(req, res, next) {
   try {
     const { id } = req.params;
     const gid = Number(id);
-    const trends = await cosmos.queryAll('trends', {
-      query: 'SELECT * FROM c WHERE c.scope = @scope AND c.gameId = @gid ORDER BY c.percentage DESC',
-      parameters: [{ name: '@scope', value: 'game' }, { name: '@gid', value: gid }],
-    });
 
+    const { rows } = await pool.query(
+      'SELECT data FROM trends WHERE scope = $1 AND game_id = $2',
+      ['game', gid]
+    );
+    const trends = rows.map(r => r.data);
     const seen = new Set();
     const unique = trends.filter(t => {
       const key = `${t.betCTA || ''}|${t.lineTypeId}`;
@@ -270,7 +244,6 @@ async function getMatchTrends(req, res, next) {
       seen.add(key);
       return true;
     });
-
     res.json(unique.map(enrichTrend));
   } catch (err) {
     next(err);
@@ -282,37 +255,22 @@ async function getMatchPredictions(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const pred = await cosmos.queryOne('predictions', {
-      query: 'SELECT * FROM c WHERE c.gameId = @gid',
-      parameters: [{ name: '@gid', value: gid }],
-    });
-    if (pred?.promotedPredictions?.predictions) {
-      return res.json(pred.promotedPredictions.predictions.map(p => ({
-        title: p.title,
-        totalVotes: p.totalVotes,
-        options: (p.options || []).map(o => ({
-          text: o.text,
-          percentage: o.percentage || (o.voteCount / p.totalVotes * 100),
-          voteCount: o.voteCount,
-        })),
-      })));
-    }
+    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
+    if (!rows.length) return res.json([]);
 
-    const overview = await scores365.getGameOverview(gid);
-    const pp = overview?.game?.promotedPredictions;
-    if (pp?.predictions?.length) {
-      return res.json(pp.predictions.map(p => ({
-        title: p.title,
-        totalVotes: p.totalVotes,
-        options: (p.options || []).map(o => ({
-          text: o.text,
-          percentage: o.percentage || (o.voteCount / p.totalVotes * 100),
-          voteCount: o.voteCount,
-        })),
-      })));
-    }
+    const pp = rows[0].data?.game?.promotedPredictions;
+    if (!pp?.predictions?.length) return res.json([]);
 
-    res.json([]);
+    const data = pp.predictions.map(p => ({
+      title: p.title,
+      totalVotes: p.totalVotes,
+      options: (p.options || []).map(o => ({
+        text: o.text,
+        percentage: o.percentage || (o.voteCount / p.totalVotes * 100),
+        voteCount: o.voteCount,
+      })),
+    }));
+    res.json(data);
   } catch (err) {
     next(err);
   }
@@ -322,19 +280,20 @@ async function getMatchTimeline(req, res, next) {
   try {
     const { id } = req.params;
     const gid = Number(id);
-    const snap = await cosmos.queryOne('game_snapshots', {
-      query: 'SELECT TOP 1 c.timeline, c.events FROM c WHERE c.gameId = @gid ORDER BY c._ts DESC',
-      parameters: [{ name: '@gid', value: gid }],
-    });
 
-    const events = snap?.timeline || snap?.events || [];
-    res.json(events.map(e => ({
+    const { rows } = await pool.query('SELECT data FROM game_stats WHERE game_id = $1', [gid]);
+    if (!rows.length) return res.json([]);
+
+    const statsData = rows[0].data;
+    const events = statsData?.timeline || statsData?.events || [];
+    const data = events.map(e => ({
       minute: e.minute || e.matchTime,
       type: e.type === 1 ? 'goal' : e.type === 2 ? 'yellow_card' : e.type === 3 ? 'red_card' : 'event',
       teamId: e.teamId || e.competitorId,
       playerName: e.playerName || e.player?.name,
       description: e.description || e.text,
-    })));
+    }));
+    res.json(data);
   } catch (err) {
     next(err);
   }
@@ -345,24 +304,23 @@ async function getMatchSuggestions(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    let game;
-    const games = await cosmos.queryAll('games', {
-      query: 'SELECT * FROM c WHERE c.competitionId = @compId AND c.id = @gid',
-      parameters: [{ name: '@compId', value: COMPETITION_PK }, { name: '@gid', value: gid }],
-    });
-    if (games.length > 0) {
-      game = games[0];
-    } else {
-      const overview = await scores365.getGameOverview(gid);
-      game = overview?.game;
-    }
+    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
+    if (!rows.length) return res.json([]);
+
+    const game = rows[0].data?.game;
     if (!game) return res.json([]);
 
     const matchupId = buildMatchupId(game);
-    const suggestions = await scores365.getGameSuggestions(gid, matchupId);
-    if (!suggestions?.games?.length) return res.json([]);
 
-    res.json(suggestions.games.map(enrichGame));
+    const { rows: suggestions } = await pool.query(
+      'SELECT data FROM game_overviews WHERE game_id = $1',
+      [Number(matchupId.split('-')[0]) || gid]
+    );
+    if (!suggestions.length) return res.json([]);
+
+    const suggestionsData = suggestions[0].data;
+    const games = suggestionsData?.games || [];
+    res.json(games.map(enrichGame));
   } catch (err) {
     next(err);
   }

@@ -1,13 +1,15 @@
-const path = require('path');
-const cosmos = require(path.join(__dirname, '..', '..', '..', 'database', 'cosmos'));
+const { pool } = require('../../../database/connection');
 const { enrichAthlete, enrichTransferWithTeam } = require('../utils/mappers');
-const { getCompetitorMap } = require('../services/cacheService');
 
-async function enrichAthleteTransfers(athlete) {
-  if (!athlete?.transfers?.length) return athlete;
-  const map = await getCompetitorMap();
-  athlete.transfers = athlete.transfers.map(t => enrichTransferWithTeam(t, map));
-  return athlete;
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
+
+async function getCompetitorMap() {
+  const { rows } = await pool.query('SELECT id, name, data FROM competitors');
+  const map = {};
+  for (const r of rows) {
+    map[String(r.id)] = { name: r.name || r.data?.name, imageVersion: r.data?.imageVersion };
+  }
+  return map;
 }
 
 async function searchAthletes(req, res, next) {
@@ -16,25 +18,45 @@ async function searchAthletes(req, res, next) {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(50, parseInt(req.query.limit) || 20);
     const offset = (page - 1) * limit;
-    let query = 'SELECT c.id, c.name, c.shortName, c.nationalTeamId FROM c WHERE 1=1';
-    const params = [];
 
+    const { rows } = await pool.query(
+      'SELECT data FROM game_overviews WHERE game_id IN (SELECT id FROM games WHERE competition_id = $1)',
+      [COMPETITION_ID]
+    );
+
+    const seen = new Set();
+    const athletes = [];
+    for (const r of rows) {
+      const game = r.data?.game;
+      if (!game) continue;
+      for (const team of [game.homeCompetitor, game.awayCompetitor]) {
+        if (!team?.members) continue;
+        for (const m of team.members) {
+          if (m.id && !seen.has(m.id)) {
+            seen.add(m.id);
+            athletes.push({ ...m, nationalTeamId: team.id, teamId: team.id, competitorId: team.id });
+          }
+        }
+      }
+    }
+
+    let filtered = athletes;
     if (search) {
-      query += ' AND CONTAINS(LOWER(c.name), @search)';
-      params.push({ name: '@search', value: search.toLowerCase() });
+      const q = search.toLowerCase();
+      filtered = filtered.filter(a =>
+        (a.name && a.name.toLowerCase().includes(q)) ||
+        (a.shortName && a.shortName.toLowerCase().includes(q))
+      );
     }
     if (teamId) {
       const tid = Number(teamId);
       if (!isNaN(tid)) {
-        params.push({ name: '@tid', value: tid });
-        query += ' AND c.nationalTeamId = @tid';
+        filtered = filtered.filter(a => a.nationalTeamId === tid || a.teamId === tid || a.competitorId === tid);
       }
     }
-    query += ' OFFSET @offset LIMIT @limit';
-    params.push({ name: '@offset', value: offset }, { name: '@limit', value: limit });
 
-    const athletes = await cosmos.queryAll('athletes', { query, parameters: params });
-    res.json(athletes.map(enrichAthlete));
+    const paged = filtered.slice(offset, offset + limit);
+    res.json(paged.map(enrichAthlete));
   } catch (err) {
     next(err);
   }
@@ -43,9 +65,11 @@ async function searchAthletes(req, res, next) {
 async function getAthleteById(req, res, next) {
   try {
     const { id } = req.params;
-    const athlete = await cosmos.getById('athletes', String(Number(id)), String(Number(id)));
+    const { rows } = await pool.query('SELECT data FROM athletes WHERE id = $1', [Number(id)]);
+    if (!rows.length) return res.status(404).json({ error: 'Jugador no encontrado' });
+    const athlete = rows[0].data?.athlete;
     if (!athlete) return res.status(404).json({ error: 'Jugador no encontrado' });
-    res.json(await enrichAthleteTransfers(enrichAthlete(athlete)));
+    res.json(enrichAthlete(athlete));
   } catch (err) {
     next(err);
   }
@@ -54,15 +78,14 @@ async function getAthleteById(req, res, next) {
 async function getAthleteCareer(req, res, next) {
   try {
     const { id } = req.params;
-    const careers = await cosmos.queryAll('athlete_careers', {
-      query: 'SELECT * FROM c WHERE c.athleteId = @aid ORDER BY c.seasonKey DESC',
-      parameters: [{ name: '@aid', value: Number(id) }],
-    });
-    res.json(careers.map(c => ({
+    const { rows } = await pool.query('SELECT data FROM athletes WHERE id = $1', [Number(id)]);
+    if (!rows.length) return res.json([]);
+    const careers = (rows[0].data?.athlete?.careers || []).map(c => ({
       seasonKey: c.seasonKey,
       name: c.name,
       stats: c.stats,
-    })));
+    }));
+    res.json(careers);
   } catch (err) {
     next(err);
   }
@@ -71,17 +94,20 @@ async function getAthleteCareer(req, res, next) {
 async function getAthleteTrophies(req, res, next) {
   try {
     const { id } = req.params;
-    const doc = await cosmos.getById('athlete_trophies', String(Number(id)), String(Number(id)));
-    if (!doc?.categories) return res.json([]);
-
-    res.json(Object.values(doc.categories).map(cat => ({
+    const { rows } = await pool.query('SELECT data FROM athletes WHERE id = $1', [Number(id)]);
+    if (!rows.length) return res.json([]);
+    const doc = rows[0].data?.athlete?.trophies || rows[0].data?.athlete?.honours || {};
+    const categories = doc.categories || doc;
+    if (!categories || typeof categories !== 'object') return res.json([]);
+    const trophies = Object.values(categories).map(cat => ({
       name: cat.name,
       trophies: (cat.trophies || []).map(t => ({
         name: t.name,
         count: t.count,
         competitionId: t.competitionId,
       })),
-    })));
+    }));
+    res.json(trophies);
   } catch (err) {
     next(err);
   }
@@ -90,21 +116,17 @@ async function getAthleteTrophies(req, res, next) {
 async function getAthleteTransfers(req, res, next) {
   try {
     const { id } = req.params;
-    const numericId = Number(id);
-    const athlete = await cosmos.getById('athletes', String(numericId), String(numericId));
-    const rawTransfers = athlete?.transfers?.length
-      ? athlete.transfers
-      : await cosmos.queryAll('athlete_transfers', {
-          query: 'SELECT * FROM c WHERE c.athleteId = @aid ORDER BY c.date DESC',
-          parameters: [{ name: '@aid', value: numericId }],
-        });
+    const { rows } = await pool.query('SELECT data FROM athletes WHERE id = $1', [Number(id)]);
+    if (!rows.length) return res.json([]);
+    const rawTransfers = rows[0].data?.athlete?.transfers || [];
     const map = await getCompetitorMap();
-    res.json(rawTransfers.map(t => enrichTransferWithTeam({
+    const transfers = rawTransfers.map(t => enrichTransferWithTeam({
       date: t.date,
       competitorId: t.competitorId,
       transferTitle: t.transferTitle,
       contractUntil: t.contractUntil,
-    }, map)));
+    }, map));
+    res.json(transfers);
   } catch (err) {
     next(err);
   }

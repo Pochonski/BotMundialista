@@ -151,7 +151,7 @@ plugins: [
 ```html
 <meta property="og:title" content="Mundialista 2026 — Dashboard" />
 <meta property="og:description" content="Centro de comando del Mundial FIFA 2026. Partidos en vivo, tabla de posiciones, estadísticas y más." />
-<meta property="og:image" content="https://botmundialista.azurewebsites.net/og-image.png" />
+<meta property="og:image" content="https://mundialista-dashboard.vercel.app/og-image.png" />
 <meta property="og:type" content="website" />
 <meta name="twitter:card" content="summary_large_image" />
 <script type="application/ld+json">

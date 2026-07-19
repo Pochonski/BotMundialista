@@ -228,7 +228,7 @@ Lista los tickets que el usuario sigue actualmente, con su modo y estado.
 
 ```
 👤: hola
-🤖: ¡Hola! Soy BotMundialista 🏆. Pregúntame sobre el Mundial 2026, equipos o apuestas. Ej: "cómo le fue a Brasil", "tabla del grupo A", o "sígueme el ticket 555".
+🤖: ¡Hola! Soy ScoreHub 🏆. Pregúntame sobre el Mundial 2026, equipos o apuestas. Ej: "cómo le fue a Brasil", "tabla del grupo A", o "sígueme el ticket 555".
 
 👤: tabla grupo c
 🤖: 🏆 Grupo C - Mundial 2026:

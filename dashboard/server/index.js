@@ -14,7 +14,7 @@ const isDev = process.env.NODE_ENV !== 'production';
 
 const whitelist = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',')
-  : ['http://localhost:5173', 'https://dashboard.mundialista.com'];
+  : ['http://localhost:5173', 'https://scorehub-rust.vercel.app'];
 
 const pino = require('pino');
 const serverLogger = pino({
@@ -26,6 +26,7 @@ app.use(pinoHttp({
   quietReqLogger: true,
 }));
 app.use(helmet());
+app.set('trust proxy', 1);
 app.use(cors({ origin: whitelist, credentials: true }));
 app.use(express.json({ limit: '100kb' }));
 
@@ -36,33 +37,17 @@ app.use('/api/', rateLimit({
   legacyHeaders: false,
 }));
 
-async function cosmosHealth() {
-  const cosmos = require(path.join(__dirname, '..', '..', 'database', 'cosmos'));
-  const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
-  await cosmos.getById('catalog', String(MUNDIAL_ID), String(MUNDIAL_ID));
-}
-
 app.get('/api/football/health', async (req, res) => {
-  const start = Date.now();
-  try {
-    await cosmosHealth();
-    res.json({
-      status: 'ok',
-      cosmos: 'connected',
-      uptime: process.uptime(),
-      latency: `${Date.now() - start}ms`,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (e) {
-    serverLogger.error({ err: e }, 'Health check falló');
-    res.status(503).json({
-      status: 'degraded',
-      cosmos: 'disconnected',
-      uptime: process.uptime(),
-      error: e.message,
-    });
-  }
+  res.json({
+    status: 'ok',
+    datasource: '365scores',
+    cache: 'supabase',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
 });
+
+
 
 app.use('/api/football', footballRoutes);
 app.use(errorHandler);
@@ -75,9 +60,9 @@ app.get('*', (req, res) => {
   }
 });
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   const server = app.listen(PORT, () => {
-    serverLogger.info({ port: PORT, env: isDev ? 'development' : 'production' }, `Mundialista Dashboard API corriendo en puerto ${PORT}`);
+        serverLogger.info({ port: PORT, env: isDev ? 'development' : 'production' }, `ScoreHub Dashboard API corriendo en puerto ${PORT}`);
   });
 
   process.on('SIGTERM', () => {

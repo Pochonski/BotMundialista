@@ -1,5 +1,6 @@
 // Parser de lenguaje natural → intención
-const { INTENTOS, EQUIPOS_POPULARES, LIGAS } = require('../utils/constants');
+const { INTENTOS } = require('../utils/constants');
+const { getAllTeams } = require('../services/teamAliases');
 
 /**
  * Normaliza texto: minúsculas, elimina acentos y espacios extra
@@ -16,18 +17,12 @@ function normalize(text) {
 /**
  * Detecta el equipo mencionado en el texto (de lista predefinida)
  */
-function detectEquipoConocido(text) {
+async function detectEquipoConocido(text) {
   const normalized = normalize(text);
 
-  for (const [key, equipo] of Object.entries(EQUIPOS_POPULARES)) {
+  for (const [key, equipo] of Object.entries(await getAllTeams())) {
     if (normalized.includes(key)) {
       return { id: equipo.id, nombre: equipo.nombre };
-    }
-  }
-
-  for (const [key, liga] of Object.entries(LIGAS)) {
-    if (normalized.includes(key) || normalized.includes(liga.nombre.toLowerCase())) {
-      return { idLiga: liga.id, nombreLiga: liga.nombre };
     }
   }
 
@@ -114,7 +109,7 @@ function detectTipoEstadistica(text) {
 /**
  * Parsea el mensaje y retorna intención + datos
  */
-function parse(text) {
+async function parse(text) {
   const normalized = normalize(text);
   const original = text;
 
@@ -142,7 +137,7 @@ function parse(text) {
 
   // === RESULTADO: "Cómo quedó [equipo]" o "Cuánto quedó [equipo]" ===
   if (normalized.includes('quedó') || normalized.includes('quedo') || normalized.includes('cuanto quedo')) {
-    const equipoConocido = detectEquipoConocido(text);
+    const equipoConocido = await detectEquipoConocido(text);
     if (equipoConocido?.id) {
       return { intent: INTENTOS.RESULTADO, equipo: equipoConocido };
     }
@@ -162,7 +157,8 @@ function parse(text) {
       const awayName = vsMatchAnalisis[3].trim();
 
       let home = null, away = null;
-      for (const [key, eq] of Object.entries(EQUIPOS_POPULARES)) {
+      const allTeams = await getAllTeams();
+      for (const [key, eq] of Object.entries(allTeams)) {
         if (homeName.includes(key) || key.includes(homeName)) home = eq;
         if (awayName.includes(key) || key.includes(awayName)) away = eq;
       }
@@ -174,7 +170,7 @@ function parse(text) {
       };
     }
 
-    const equipoConocido = detectEquipoConocido(text);
+    const equipoConocido = await detectEquipoConocido(text);
     if (equipoConocido?.id) {
       return { intent: INTENTOS.ANALISIS, equipo: equipoConocido };
     }
@@ -191,7 +187,8 @@ function parse(text) {
     const awayName = vsMatch[3].trim();
 
     let home = null, away = null;
-    for (const [key, eq] of Object.entries(EQUIPOS_POPULARES)) {
+    const allTeams = await getAllTeams();
+    for (const [key, eq] of Object.entries(allTeams)) {
       if (homeName.includes(key) || key.includes(homeName)) home = eq;
       if (awayName.includes(key) || key.includes(awayName)) away = eq;
     }
@@ -204,7 +201,7 @@ function parse(text) {
   }
 
   // === INFO EQUIPO: "próximo partido de [equipo]", "info de [equipo]" ===
-  const equipoConocido = detectEquipoConocido(text);
+  const equipoConocido = await detectEquipoConocido(text);
   if ((normalized.includes('próximo') || normalized.includes('proximo') || normalized.includes('siguiente') ||
        normalized.includes('últimos') || normalized.includes('ultimos') || normalized.includes('resultados') ||
        normalized.includes('info') || normalized.includes('información')) && equipoConocido?.id) {
@@ -252,12 +249,6 @@ function parse(text) {
 
     if (normalized.includes('mundial')) {
       return { intent: INTENTOS.TABLA_MUNDIAL };
-    }
-    if (normalized.includes('premier') || normalized.includes('inglaterra')) {
-      return { intent: INTENTOS.TABLA, liga: LIGAS.PREMIER_LEAGUE };
-    }
-    if (normalized.includes('laliga') || normalized.includes('la liga') || normalized.includes('españa')) {
-      return { intent: INTENTOS.TABLA, liga: LIGAS.LA_LIGA };
     }
     return { intent: INTENTOS.TABLA_MUNDIAL };
   }

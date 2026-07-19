@@ -1,11 +1,15 @@
 require('dotenv').config();
-const cosmos = require('../database/cosmos');
-const { normalizeTeamName } = require('./mundialCache');
+const { pool } = require('../database/connection');
+const mundialCache = require('./mundialCache');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 
 function stripDiacritics(s) {
   return (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function normalizeTeamName(s) {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 }
 
 function competitorMatches(competitor, query) {
@@ -15,20 +19,22 @@ function competitorMatches(competitor, query) {
   return name.includes(norm) || norm.includes(name);
 }
 
-/**
- * Busca un partido entre dos equipos en el Mundial 2026.
- * Prioriza partidos próximos (statusGroup 2) o en vivo (statusGroup 1).
- * Si no encuentra, devuelve el último finalizado entre esos equipos.
- *
- * @param {string} homeQuery
- * @param {string} awayQuery
- * @returns {Promise<Object|null>} doc del container games o null
- */
+async function getFilteredGames(statusGroups = [1, 2, 4]) {
+  const { rows } = await pool.query(
+    'SELECT data FROM games WHERE competition_id = $1 AND status_group = ANY($2)',
+    [COMPETITION_ID, statusGroups]
+  );
+  return rows.map(r => r.data);
+}
+
 async function findGameByTeams(homeQuery, awayQuery) {
   if (!homeQuery || !awayQuery) return null;
 
-  const games = await cosmos.queryAll('games',
-    'SELECT c.id, c.competitionId, c.statusGroup, c.statusText, c.startTime, c.homeCompetitor, c.awayCompetitor, c.stageName, c.groupNum FROM c WHERE c.competitionId = 5930 AND (c.statusGroup = 1 OR c.statusGroup = 2 OR c.statusGroup = 4)');
+  const { rows } = await pool.query(
+    'SELECT data FROM games WHERE competition_id = $1 AND status_group IN (1, 2, 4)',
+    [COMPETITION_ID]
+  );
+  const games = rows.map(r => r.data);
 
   const normalize = (s) => stripDiacritics(s).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -77,57 +83,52 @@ async function findGameByTeams(homeQuery, awayQuery) {
   return candidates[0];
 }
 
-/**
- * Lista todos los partidos en vivo del Mundial (statusGroup=1).
- * @returns {Promise<Array>}
- */
 async function findLiveGames() {
   try {
-    return await cosmos.queryAll('games',
-      'SELECT c.id, c.statusGroup, c.statusText, c.startTime, c.homeCompetitor, c.awayCompetitor, c.stageName FROM c WHERE c.competitionId = 5930 AND c.statusGroup = 1 ORDER BY c.startTime ASC');
+    const { rows } = await pool.query(
+      'SELECT data FROM games WHERE competition_id = $1 AND status_group = 1',
+      [COMPETITION_ID]
+    );
+    return rows.map(r => r.data);
   } catch (_) {
     return [];
   }
 }
 
-/**
- * Lista los próximos partidos del Mundial (statusGroup=2).
- * @param {number} limit
- * @returns {Promise<Array>}
- */
 async function findUpcomingGames(limit = 10) {
   try {
-    return await cosmos.queryAll('games',
-      { query: 'SELECT c.id, c.statusGroup, c.statusText, c.startTime, c.homeCompetitor, c.awayCompetitor, c.stageName FROM c WHERE c.competitionId = 5930 AND c.statusGroup = 2 ORDER BY c.startTime ASC OFFSET 0 LIMIT @lim', parameters: [{ name: '@lim', value: limit }] });
+    const { rows } = await pool.query(
+      'SELECT data FROM games WHERE competition_id = $1 AND status_group = 2 ORDER BY start_time ASC LIMIT $2',
+      [COMPETITION_ID, limit]
+    );
+    return rows.map(r => r.data);
   } catch (_) {
     return [];
   }
 }
 
-/**
- * Busca todos los partidos de un equipo en el Mundial 2026.
- * @param {string} name - nombre del equipo
- * @param {Object} [opts] - { limit, statusGroups }
- * @returns {Promise<Array>}
- */
 async function findGamesByCompetitorName(name, { limit = 50, statusGroups = [1, 2, 4] } = {}) {
   if (!name) return [];
-  const sg = statusGroups.join(',');
+  const normalized = stripDiacritics(name);
   try {
-    return await cosmos.queryAll('games',
-      { query: `SELECT c.id, c.competitionId, c.statusGroup, c.startTime, c.homeCompetitor, c.awayCompetitor, c.stageName FROM c WHERE c.competitionId = @m AND c.statusGroup IN (${sg}) AND (CONTAINS(LOWER(c.homeCompetitor.name), LOWER(@n)) OR CONTAINS(LOWER(c.awayCompetitor.name), LOWER(@n))) ORDER BY c.startTime DESC OFFSET 0 LIMIT @lim`,
-        parameters: [
-          { name: '@m', value: MUNDIAL_ID },
-          { name: '@n', value: name },
-          { name: '@lim', value: limit },
-        ] });
+    const { rows } = await pool.query(
+      'SELECT data FROM games WHERE competition_id = $1 AND status_group = ANY($2)',
+      [COMPETITION_ID, statusGroups]
+    );
+    const filtered = rows.filter(r => {
+      const home = stripDiacritics(r.data.homeCompetitor?.name || '');
+      const away = stripDiacritics(r.data.awayCompetitor?.name || '');
+      return home.includes(normalized) || away.includes(normalized);
+    }).map(r => r.data);
+    return filtered.slice(0, limit);
   } catch (_) {
     return [];
   }
 }
 
 module.exports = {
-  MUNDIAL_ID,
+  COMPETITION_ID,
+  normalizeTeamName,
   findGameByTeams,
   findLiveGames,
   findUpcomingGames,

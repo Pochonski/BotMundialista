@@ -6,7 +6,7 @@
  * Cada código de país produce el emoji de bandera correspondiente
  */
 const COUNTRY_FLAGS = {
-  // Mundial 2026 equipos (claves sin acentos para coincidir con normalización)
+  // Equipos (claves sin acentos para coincidir con normalización)
   'argentina': '🇦🇷',
   'brasil': '🇧🇷',
   'alemania': '🇩🇪',

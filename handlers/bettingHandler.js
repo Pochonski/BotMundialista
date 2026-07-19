@@ -1,4 +1,4 @@
-// Handler de análisis para apuestas - Mundial 2026
+// Handler de análisis para apuestas
 const cache = require('../services/mundialCache');
 const { formatAnalisis } = require('../utils/formatters');
 

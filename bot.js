@@ -37,7 +37,7 @@ client.on('auth_failure', (msg) => {
 
 // Ready
 client.on('ready', async () => {
-  console.log('🤖 BotMundialista está listo!');
+  console.log('🤖 ScoreHub está listo!');
 
   // Configurar notification service con el cliente de WhatsApp
   notificationService.setClient(client);
@@ -104,5 +104,5 @@ process.on('SIGINT', async () => {
 });
 
 // Start
-console.log('🚀 Iniciando BotMundialista...');
+console.log('🚀 Iniciando ScoreHub...');
 client.initialize();

@@ -2,10 +2,10 @@ require('dotenv').config();
 const cron = require('node-cron');
 
 const api = require('./scores365Service');
-const cosmos = require('../database/cosmos');
+const { pool } = require('../database/connection');
 const notifier = require('./notifier');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 const POLL_MS = parseInt(process.env.SCORES365_POLL_MS || '25000', 10);
 const CRON_EXPR = `*/${Math.max(15, Math.floor(POLL_MS / 1000))} * * * * *`;
 
@@ -16,20 +16,20 @@ const previousStats = new Map();
 
 async function getLastUpdateId(gameId) {
   try {
-    const state = await cosmos.getById('games', `state:${gameId}`, MUNDIAL_ID);
-    return state?.lastUpdateId || 0;
+    const r = await pool.query('SELECT last_update_id FROM scores365_state WHERE game_id = $1', [Number(gameId)]);
+    return r.rows[0]?.last_update_id || 0;
   } catch (_) { return 0; }
 }
 
 async function setLastUpdateId(gameId, lastUpdateId) {
-  await cosmos.upsert('games', {
-    id: `state:${gameId}`,
-    competitionId: MUNDIAL_ID,
-    stateKey: `poll:${gameId}`,
-    gameId,
-    lastUpdateId,
-    updatedAt: now(),
-  });
+  try {
+    await pool.query(`
+      INSERT INTO scores365_state (game_id, competition_id, last_update_id, updated_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (game_id)
+      DO UPDATE SET last_update_id = EXCLUDED.last_update_id, updated_at = NOW()
+    `, [Number(gameId), COMPETITION_ID, lastUpdateId]);
+  } catch (_) {}
 }
 
 function getStatValue(stats, id) {
@@ -67,7 +67,7 @@ function detectEvents(gameId, prevStats, newStats) {
   const newCorners = getStatValue(newStats, 6);
   const prevCorners = getStatValue(prevStats, 6);
   if (newCorners != null && prevCorners != null && newCorners > prevCorners) {
-    events.push({ type: 'corner', gameId, title: `Córner`, minute: null });
+    events.push({ type: 'corner', gameId, title: 'Córner', minute: null });
   }
 
   return events;
@@ -90,16 +90,6 @@ async function pollGame(gameId) {
 
   const statsCount = newStats.length;
   const filtersCount = (data.statisticsFilters || []).length;
-  await cosmos.upsert('game_snapshots', {
-    id: `${gameId}-${newId}`,
-    gameId: Number(gameId),
-    lastUpdateId: newId,
-    requestedUpdateId: data.requestedUpdateId,
-    ttl: data.ttl,
-    statistics: newStats,
-    statisticsFilters: data.statisticsFilters || [],
-    fetchedAt: now(),
-  });
   await setLastUpdateId(gameId, newId);
 
   for (const event of detectedEvents) {
@@ -112,7 +102,7 @@ async function pollGame(gameId) {
 
 async function listLiveGames() {
   try {
-    const current = await api.getGamesCurrent(MUNDIAL_ID);
+    const current = await api.getGamesCurrent(COMPETITION_ID);
     return (current.games || []).filter((g) => g.statusGroup === 1 || g.statusText === 'En vivo').map((g) => g.id);
   } catch (e) {
     log(`getGamesCurrent falló: ${e.message}`);

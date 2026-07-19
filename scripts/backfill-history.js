@@ -3,7 +3,7 @@ require('dotenv').config();
 const api = require('../services/scores365Service');
 const cosmos = require('../database/cosmos');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 
 function now() { return new Date().toISOString(); }
 function log(msg) { console.log(`[${now()}] ${msg}`); }
@@ -13,12 +13,12 @@ async function main() {
 
   // 1. Read existing docs from Cosmos
   const existing = await cosmos.queryAll('competition_history', {
-    query: `SELECT * FROM c WHERE c.competitionId = ${MUNDIAL_ID} ORDER BY c.seasonNum ASC`,
+    query: `SELECT * FROM c WHERE c.competitionId = ${COMPETITION_ID} ORDER BY c.seasonNum ASC`,
   });
   log(`  → ${existing.length} docs en Cosmos`);
 
   // 2. Fetch fresh data from 365scores API
-  const apiData = await api.getCompetitionHistory(MUNDIAL_ID);
+  const apiData = await api.getCompetitionHistory(COMPETITION_ID);
   const apiRows = apiData?.table?.rows || [];
   log(`  → ${apiRows.length} rows desde API`);
 
@@ -34,7 +34,7 @@ async function main() {
 
   for (const row of apiRows) {
     try {
-      const docId = `${MUNDIAL_ID}-se${row.seasonNum}`;
+      const docId = `${COMPETITION_ID}-se${row.seasonNum}`;
       const existingDoc = existing.find(d => d.id === docId);
 
       // Check if existing doc has all fields
@@ -52,7 +52,7 @@ async function main() {
       // Upsert with full row data
       const doc = {
         id: docId,
-        competitionId: MUNDIAL_ID,
+        competitionId: COMPETITION_ID,
         seasonNum: row.seasonNum,
         ...row,
         _fetchedAt: now(),

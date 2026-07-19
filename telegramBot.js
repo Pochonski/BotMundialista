@@ -1,4 +1,4 @@
-// BotMundialista - Telegram Bot (usando API directa)
+// ScoreHub - Telegram Bot (usando API directa)
 require('dotenv').config();
 const http = require('http');
 const https = require('https');
@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const messageHandler = require('./handlers/messageHandler');
 const matchSearch = require('./services/matchSearch');
-const cosmos = require('./database/cosmos');
+const scores365 = require('./services/scores365Service');
 const followHandler = require('./handlers/followHandler');
 const conversationalHandler = require('./handlers/conversationalHandler');
 const mundialista365 = require('./handlers/mundialista365Handler');
@@ -38,14 +38,14 @@ let dbAvailable = false;
 // Mini servidor HTTP para health checks + webhook de Telegram
 const PORT = process.env.PORT || 8080;
 const WEBHOOK_PATH = '/webhook';
-const WEBHOOK_URL = `https://botmundialista.azurewebsites.net${WEBHOOK_PATH}`;
+const WEBHOOK_URL = '';
 const server = http.createServer((req, res) => {
   const url = req.url || '/';
   if (url === '/health' || url === '/') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: 'ok',
-      bot: 'BotMundialista',
+      bot: 'ScoreHub',
       uptime: process.uptime(),
       db: dbAvailable ? 'connected' : 'demo',
       timestamp: new Date().toISOString()
@@ -338,7 +338,7 @@ async function handleCommand(chatId, text, userName, userId) {
     case '/start':
     case '/inicio':
       await sendMessage(chatId,
-        `🏆 *BotMundialista* - Asistente del Mundial 2026\n\n` +
+        `🏆 *ScoreHub* - Asistente de fútbol\n\n` +
         `¡Hola ${alias}! 👋 Soy tu asistente de fútbol.\n\n` +
         `📱 *Comandos básicos:*\n` +
         `  /start · /help - Iniciar / ver ayuda\n` +
@@ -386,7 +386,7 @@ async function handleCommand(chatId, text, userName, userId) {
     case '/help':
     case '/ayuda':
       await sendMessage(chatId,
-        `📖 *COMANDOS - MUNDIAL 2026*\n\n` +
+        `📖 *COMANDOS - ScoreHub*\n\n` +
         `⚽ *Partidos:*\n` +
         `  /partidos - Partidos de hoy\n` +
         `  /manana - Partidos de mañana\n` +
@@ -550,7 +550,7 @@ async function handleCommand(chatId, text, userName, userId) {
 
     case '/mundial': {
       await sendMessage(chatId,
-        `🏆 *MUNDIAL 2026*\n\n` +
+        `🏆 *COMPETICIÓN*\n\n` +
         `🌎 *Sede:* EE.UU. · Canadá · México\n` +
         `📅 *Fechas:* 11 junio – 19 julio 2026\n` +
         `👥 *Equipos:* 48 selecciones\n` +
@@ -561,7 +561,7 @@ async function handleCommand(chatId, text, userName, userId) {
         `• /grupo [A-L] — Tabla de un grupo\n` +
         `• /partidos — Partidos de hoy\n` +
         `• /manana — Partidos de mañana\n` +
-        `• /goleadores — Top goleadores del Mundial`
+        `• /goleadores — Top goleadores`
       );
       return true;
     }
@@ -996,8 +996,8 @@ async function handleCommand(chatId, text, userName, userId) {
       if (cmd === '/fixture' || cmd === '/fixture@botmundialistabot' || cmd === '/fixtures' || cmd === '/calendario') {
         try {
           const text = await mundialista365.getFixture();
-          const doc = await cosmos.getById('fixtures', `${mundialista365.MUNDIAL_ID}-fixtures`, mundialista365.MUNDIAL_ID);
-          const games = (doc?.games || []).filter((g) => new Date(g.startTime || g.date || 0) > new Date()).sort((a, b) => new Date(a.startTime || a.date) - new Date(b.startTime || b.date)).slice(0, 10);
+          const live = await scores365.getFixtures(mundialista365.COMPETITION_ID);
+          const games = (live?.games || []).filter((g) => new Date(g.startTime || g.date || 0) > new Date()).sort((a, b) => new Date(a.startTime || a.date) - new Date(b.startTime || b.date)).slice(0, 10);
           if (games.length) {
             await sendMessage(chatId, text, { reply_markup: { inline_keyboard: buildGameKeyboard(games, ['odds']) } });
           } else {
@@ -1365,10 +1365,9 @@ async function handleCommand(chatId, text, userName, userId) {
 
         // Next game
         try {
-          const nextDoc = await cosmos.queryOne('athlete_next_games',
-            { query: 'SELECT TOP 1 * FROM c WHERE c.athleteId = @aid ORDER BY c._ts DESC', parameters: [{ name: '@aid', value: Number(athlete.id) }] });
-          if (nextDoc?.game) {
-            const g = nextDoc.game;
+          const nextData = await scores365.getAthleteNextGame(Number(athlete.id));
+          if (nextData?.game) {
+            const g = nextData.game;
             const h = g.homeCompetitor?.name || g.homeTeam || '?';
             const a = g.awayCompetitor?.name || g.awayTeam || '?';
             const d = g.startTime ? new Date(g.startTime).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '';
@@ -1378,7 +1377,7 @@ async function handleCommand(chatId, text, userName, userId) {
 
         // Chart events (form)
         try {
-          const chart = await cosmos.getById('athlete_chart_events', String(athlete.id), Number(athlete.id));
+          const chart = await scores365.getAthleteChartEvents(Number(athlete.id));
           if (chart?.events?.length) {
             const recent = chart.events.slice(-5);
             const icons = recent.map((e) => {
@@ -1708,7 +1707,7 @@ async function processUpdates(updates) {
  * Inicializar bot
  */
 async function init() {
-  console.log('🚀 BotMundialista Telegram iniciando...');
+  console.log('🚀 ScoreHub Telegram iniciando...');
 
   // No esperar DB connection (no bloqueante)
   testConnection().then(ok => {
@@ -1720,21 +1719,8 @@ async function init() {
     console.log('⚠️ Modo demo activo (sin base de datos)');
   });
 
-  // Configurar webhook con Telegram
-  try {
-    const res = await telegramRequest('setWebhook', { url: WEBHOOK_URL });
-    if (res.ok) {
-      console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
-    } else {
-      console.error('❌ Error configurando webhook:', res.description);
-    }
-  } catch (error) {
-    console.error('❌ Error configurando webhook:', error.message);
-  }
-
-  console.log(`✅ BotMundialista Telegram listo!`);
+  console.log(`✅ ScoreHub Telegram listo!`);
   console.log(`📱 Token: ${TELEGRAM_TOKEN?.substring(0, 10)}...`);
-  console.log(`🌐 Webhook: ${WEBHOOK_URL}`);
 }
 
 // Iniciar

@@ -1,4 +1,4 @@
-// Handler de información de equipos - Mundial 2026
+// Handler de información de equipos
 const cache = require('../services/mundialCache');
 const { formatEquipoSeguido, formatMisEquipos, formatMatchLine } = require('../utils/formatters');
 const { getFlag, getConfederation, getRecentForm } = require('../utils/teamContext');

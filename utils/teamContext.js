@@ -1,7 +1,7 @@
 // Utilidades para enriquecer la respuesta de info de equipo
 // Usa datos del Mundo 2026 + map de confederaciones hardcoded
 
-const { EQUIPOS_MUNDIAL } = require('./constants');
+const { EQUIPOS_MUNDIAL: HARDCODED_TEAMS } = require('./constants');
 
 // Mapa de confederaciones: nombre del equipo (API) -> confederación
 const CONFEDERATIONS = {
@@ -57,7 +57,7 @@ function getFlag(teamName) {
 }
 
 /**
- * Devuelve la confederación del equipo (o null si no es del Mundial 2026)
+ * Devuelve la confederación del equipo (o null si no es de la competencia)
  */
 function getConfederation(teamName) {
   if (!teamName) return null;
@@ -100,5 +100,5 @@ module.exports = {
   getRecentForm,
   CONFEDERATIONS,
   FLAGS,
-  EQUIPOS_MUNDIAL,
+  HARDCODED_TEAMS,
 };

@@ -1,9 +1,8 @@
 require('dotenv').config();
 const { pool } = require('../database/connection');
-const cosmos = require('../database/cosmos');
 const state = require('../database/bootstrapState');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 
 const STATES = {
   PENDING: 'pending',
@@ -183,41 +182,23 @@ function extractStatsFromSnapshot(snapshot) {
   };
 }
 
-async function getGameStateFromCosmos(gameId) {
+async function getGameStateFromSupabase(gameId) {
   try {
-    const snap = await cosmos.queryOne('game_snapshots',
-      { query: 'SELECT TOP 1 c.statistics, c.gameId, c.homeCompetitor, c.awayCompetitor, c.game FROM c WHERE c.gameId = @g ORDER BY c._ts DESC', parameters: [{ name: '@g', value: Number(gameId) }] });
-    if (!snap) return null;
-    const home = snap.homeCompetitor || snap.game?.homeCompetitor || {};
-    const away = snap.awayCompetitor || snap.game?.awayCompetitor || {};
-    let homeGoals = 0, awayGoals = 0, totalCards = 0, totalCorners = 0;
-    if (typeof home.score === 'number') homeGoals = home.score;
-    if (typeof away.score === 'number') awayGoals = away.score;
-    if (homeGoals === 0 && awayGoals === 0) {
-      for (const s of snap.statistics || []) {
-        if (s.id === 1) {
-          if (s.competitorId === home.id) homeGoals = parseInt(s.value) || 0;
-          else if (s.competitorId === away.id) awayGoals = parseInt(s.value) || 0;
-        } else if (s.id === 2 || s.id === 5) {
-          totalCards += parseInt(s.value) || 0;
-        } else if (s.id === 6) {
-          totalCorners += parseInt(s.value) || 0;
-        }
-      }
-    }
-    if (homeGoals === 0 && awayGoals === 0) {
-      const m = (snap.game?.matchScore || snap.matchScore || '').match(/(\d+)\s*[-:]\s*(\d+)/);
-      if (m) {
-        homeGoals = parseInt(m[1]) || 0;
-        awayGoals = parseInt(m[2]) || 0;
-      }
-    }
+    const r = await pool.query(
+      'SELECT last_snapshot, last_status_text FROM scores365_state WHERE game_id = $1',
+      [Number(gameId)]
+    );
+    const row = r.rows[0];
+    if (!row || !row.last_snapshot) return null;
+    const snap = row.last_snapshot;
     return {
-      homeGoals, awayGoals,
-      totalGoals: homeGoals + awayGoals,
-      totalCards, totalCorners,
-      homeName: home.name || '',
-      awayName: away.name || '',
+      homeGoals: snap.homeGoals ?? 0,
+      awayGoals: snap.awayGoals ?? 0,
+      totalGoals: (snap.homeGoals ?? 0) + (snap.awayGoals ?? 0),
+      totalCards: snap.totalCards ?? 0,
+      totalCorners: snap.totalCorners ?? 0,
+      homeName: snap.homeName || '',
+      awayName: snap.awayName || '',
     };
   } catch (e) {
     console.error('[betEvaluator] getGameState error:', e.message);
@@ -287,35 +268,34 @@ async function findAffectedChats(event) {
   if (!event || !event.gameId) return [];
   const out = [];
   try {
-    const subs = await cosmos.queryAll('bet_followers',
-      { query: 'SELECT c.ticketId, c.chatIds, c.mode, c.lastNotifiedStatus FROM c WHERE c.gameId = @g', parameters: [{ name: '@g', value: Number(event.gameId) }] });
-    const gameState = await getGameStateFromCosmos(event.gameId);
+    const subs = await pool.query(
+      'SELECT ticket_id, chat_ids, mode, last_notified_status FROM bet_followers WHERE game_id = $1',
+      [Number(event.gameId)]
+    );
+    const gameState = await getGameStateFromSupabase(event.gameId);
     if (!gameState) return [];
-    for (const sub of subs) {
-      const ticket = await fetchTicketFromDb(sub.ticketId);
+    for (const sub of subs.rows) {
+      const ticket = await fetchTicketFromDb(sub.ticket_id);
       if (!ticket) continue;
       const evaluation = await evaluateTicket(ticket, gameState);
       if (!evaluation) continue;
       if (sub.mode === 'all_events') {
-        for (const chatId of sub.chatIds || []) {
-          out.push({ chatId, ticketId: sub.ticketId, ticket, evaluation, mode: 'all_events' });
+        for (const chatId of sub.chat_ids || []) {
+          out.push({ chatId, ticketId: sub.ticket_id, ticket, evaluation, mode: 'all_events' });
         }
       } else if (sub.mode === 'outcome_only') {
-        const lastNotified = sub.lastNotifiedStatus || {};
+        const lastNotified = sub.last_notified_status || {};
         const changed = statusChanged(lastNotified, evaluation);
         if (changed) {
-          for (const chatId of sub.chatIds || []) {
-            out.push({ chatId, ticketId: sub.ticketId, ticket, evaluation, mode: 'outcome_only' });
+          for (const chatId of sub.chat_ids || []) {
+            out.push({ chatId, ticketId: sub.ticket_id, ticket, evaluation, mode: 'outcome_only' });
           }
-          await cosmos.upsert('bet_followers', {
-            id: `ticket-${sub.ticketId}`,
-            ticketId: String(sub.ticketId),
-            gameId: Number(event.gameId),
-            chatIds: sub.chatIds || [],
-            mode: sub.mode,
-            lastNotifiedStatus: evaluation,
-            _fetchedAt: new Date().toISOString(),
-          }).catch(() => {});
+          await pool.query(`
+            INSERT INTO bet_followers (ticket_id, game_id, chat_ids, mode, last_notified_status, updated_at)
+            VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+            ON CONFLICT (ticket_id, mode)
+            DO UPDATE SET last_notified_status = EXCLUDED.last_notified_status, updated_at = NOW()
+          `, [String(sub.ticket_id), Number(event.gameId), sub.chat_ids, sub.mode, JSON.stringify(evaluation)]);
         }
       }
     }
@@ -329,7 +309,7 @@ module.exports = {
   STATES,
   BET_TYPES,
   extractStatsFromSnapshot,
-  getGameStateFromCosmos,
+  getGameStateFromSupabase,
   fetchTicketFromDb,
   evaluateTicket,
   findAffectedChats,

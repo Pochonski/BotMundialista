@@ -1,5 +1,4 @@
 require('dotenv').config();
-const cosmos = require('../database/cosmos');
 const context = require('../services/conversationContext');
 const { pool } = require('../database/connection');
 
@@ -25,6 +24,35 @@ async function getTicketInfo(ticketId) {
   }
 }
 
+async function getFollowByTicketId(ticketId) {
+  try {
+    const r = await pool.query(
+      'SELECT ticket_id, game_id, chat_ids, mode, last_notified_status FROM bet_followers WHERE ticket_id = $1',
+      [String(ticketId)]
+    );
+    if (r.rows.length === 0) return null;
+    const row = r.rows[0];
+    row.chatIds = row.chat_ids;
+    return row;
+  } catch (_) { return null; }
+}
+
+async function upsertFollow(ticketIdStr, gameId, chatIds, mode, lastNotifiedStatus) {
+  await pool.query(`
+    INSERT INTO bet_followers (ticket_id, game_id, chat_ids, mode, last_notified_status, updated_at)
+    VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+    ON CONFLICT (ticket_id, mode)
+    DO UPDATE SET chat_ids = EXCLUDED.chat_ids, game_id = EXCLUDED.game_id,
+                  last_notified_status = COALESCE(EXCLUDED.last_notified_status, bet_followers.last_notified_status),
+                  updated_at = NOW()
+  `, [ticketIdStr, gameId != null ? Number(gameId) : null, chatIds, mode,
+      lastNotifiedStatus ? JSON.stringify(lastNotifiedStatus) : null]);
+}
+
+async function deleteFollow(ticketIdStr) {
+  await pool.query('DELETE FROM bet_followers WHERE ticket_id = $1', [ticketIdStr]);
+}
+
 async function followTicket(chatIdStr, ticketId, mode = DEFAULT_MODE) {
   const ticket = await getTicketInfo(ticketId);
   if (!ticket) {
@@ -39,25 +67,15 @@ async function followTicket(chatIdStr, ticketId, mode = DEFAULT_MODE) {
 
   const ticketIdStr = String(ticket.id);
   const gameId = ticket.id_partido_api ? Number(ticket.id_partido_api) : null;
-  const docId = `ticket-${ticketIdStr}`;
 
-  let existing = null;
-  try { existing = await cosmos.getById('bet_followers', docId, ticketIdStr); } catch (_) {}
+  const existing = await getFollowByTicketId(ticketIdStr);
 
   let chatIds = existing?.chatIds || [];
   if (chatIds.includes(chatIdStr)) {
     if (existing.mode === mode) {
       return { ok: true, message: `✅ Ya estás siguiendo el ticket #${ticketId} (modo: ${MODE_LABELS[mode]}).` };
     }
-    await cosmos.upsert('bet_followers', {
-      id: docId,
-      ticketId: ticketIdStr,
-      gameId,
-      chatIds,
-      mode,
-      lastNotifiedStatus: existing.lastNotifiedStatus || null,
-      _fetchedAt: new Date().toISOString(),
-    });
+    await upsertFollow(ticketIdStr, gameId, chatIds, mode, existing.last_notified_status);
     return { ok: true, message: `✅ Modo actualizado para ticket #${ticketId}: ${MODE_LABELS[mode]}.` };
   }
 
@@ -66,15 +84,7 @@ async function followTicket(chatIdStr, ticketId, mode = DEFAULT_MODE) {
   }
 
   chatIds.push(chatIdStr);
-  await cosmos.upsert('bet_followers', {
-    id: docId,
-    ticketId: ticketIdStr,
-    gameId,
-    chatIds,
-    mode,
-    lastNotifiedStatus: null,
-    _fetchedAt: new Date().toISOString(),
-  });
+  await upsertFollow(ticketIdStr, gameId, chatIds, mode, null);
 
   context.rememberTicket(chatIdStr, ticketIdStr);
   return {
@@ -85,42 +95,38 @@ async function followTicket(chatIdStr, ticketId, mode = DEFAULT_MODE) {
 
 async function unfollowTicket(chatIdStr, ticketId) {
   const ticketIdStr = String(ticketId);
-  const docId = `ticket-${ticketIdStr}`;
-  let existing = null;
-  try { existing = await cosmos.getById('bet_followers', docId, ticketIdStr); } catch (_) {}
-  if (!existing) {
+  const existing = await getFollowByTicketId(ticketIdStr);
+
+  if (!existing || !Array.isArray(existing.chatIds) || !existing.chatIds.includes(chatIdStr)) {
     return { ok: false, message: `❌ No sigues el ticket #${ticketId}.` };
   }
-  const chatIds = (existing.chatIds || []).filter((c) => c !== chatIdStr);
+
+  const chatIds = existing.chatIds.filter((c) => c !== chatIdStr);
   if (chatIds.length === 0) {
-    await cosmos.deleteDoc('bet_followers', docId, ticketIdStr);
+    await deleteFollow(ticketIdStr);
     return { ok: true, message: `✅ Dejé de seguir el ticket #${ticketId}.` };
   }
-  await cosmos.upsert('bet_followers', {
-    id: docId,
-    ticketId: ticketIdStr,
-    gameId: existing.gameId,
-    chatIds,
-    mode: existing.mode,
-    lastNotifiedStatus: existing.lastNotifiedStatus,
-    _fetchedAt: new Date().toISOString(),
-  });
+
+  await upsertFollow(ticketIdStr, existing.game_id, chatIds, existing.mode, null);
   return { ok: true, message: `✅ Dejé de seguir el ticket #${ticketId} para ti.` };
 }
 
 async function listFollowed(chatIdStr) {
   try {
-    const all = await cosmos.queryAll('bet_followers', { query: 'SELECT c.ticketId, c.chatIds, c.mode, c.gameId FROM c' });
-    const mine = all.filter((d) => Array.isArray(d.chatIds) && d.chatIds.includes(chatIdStr));
+    const r = await pool.query(
+      "SELECT ticket_id, chat_ids, mode, game_id FROM bet_followers WHERE $1 = ANY(chat_ids)",
+      [chatIdStr]
+    );
+    const mine = r.rows;
     if (mine.length === 0) {
       return { ok: true, message: '📭 No sigues ningún ticket todavía. Probá: "/follow 555" (con un ticket tuyo).' };
     }
     const lines = ['📋 *Tickets que sigues:*\n'];
     for (const sub of mine) {
-      const ticket = await getTicketInfo(sub.ticketId);
+      const ticket = await getTicketInfo(sub.ticket_id);
       const modeIcon = sub.mode === 'outcome_only' ? '🎯' : '📡';
-      const partido = ticket?.partido_extrado || `partido ${sub.gameId}`;
-      lines.push(`${modeIcon} *#${sub.ticketId}* — ${partido}`);
+      const partido = ticket?.partido_extrado || `partido ${sub.game_id}`;
+      lines.push(`${modeIcon} *#${sub.ticket_id}* — ${partido}`);
       lines.push(`   Modo: ${MODE_LABELS[sub.mode] || sub.mode}`);
       if (ticket) lines.push(`   Estado: ${ticket.estado}`);
       lines.push('');
@@ -137,21 +143,11 @@ async function changeMode(chatIdStr, ticketId, newMode) {
     return { ok: false, message: '❌ Modo inválido. Usa "all" o "outcome".' };
   }
   const ticketIdStr = String(ticketId);
-  const docId = `ticket-${ticketIdStr}`;
-  let existing = null;
-  try { existing = await cosmos.getById('bet_followers', docId, ticketIdStr); } catch (_) {}
+  const existing = await getFollowByTicketId(ticketIdStr);
   if (!existing || !Array.isArray(existing.chatIds) || !existing.chatIds.includes(chatIdStr)) {
     return { ok: false, message: `❌ No sigues el ticket #${ticketId}. Primero: /follow ${ticketId}` };
   }
-  await cosmos.upsert('bet_followers', {
-    id: docId,
-    ticketId: ticketIdStr,
-    gameId: existing.gameId,
-    chatIds: existing.chatIds,
-    mode: newMode,
-    lastNotifiedStatus: null,
-    _fetchedAt: new Date().toISOString(),
-  });
+  await upsertFollow(ticketIdStr, existing.game_id, existing.chatIds, newMode, null);
   return { ok: true, message: `✅ Ticket #${ticketId}: modo cambiado a "${MODE_LABELS[newMode]}".` };
 }
 

@@ -1,52 +1,25 @@
-const path = require('path');
-const cosmos = require(path.join(__dirname, '..', '..', '..', 'database', 'cosmos'));
-const images = require(path.join(__dirname, '..', '..', '..', 'services', 'images'));
+const { pool } = require('../../../database/connection');
+const images = require('../../../services/images');
 const { GROUP_NAMES, transformStandingRow, enrichTeam } = require('../utils/mappers');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
-const COMPETITION_PK = String(MUNDIAL_ID);
-const CURRENT_SEASON = parseInt(process.env.SCORES365_SEASON || '25', 10);
-const scores365 = require(path.join(__dirname, '..', '..', '..', 'services', 'scores365Service'));
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
+const CURRENT_SEASON = parseInt(process.env.PRIMARY_SEASON || '25', 10);
 
 async function getStandings(req, res, next) {
   try {
-    const query = {
-      query: 'SELECT * FROM c WHERE c.competitionId = @compId AND c.stageNum = 1 ORDER BY c.seasonNum DESC',
-      parameters: [{ name: '@compId', value: COMPETITION_PK }],
-    };
-    const docs = await cosmos.queryAll('standings', query);
+    const { rows } = await pool.query(
+      'SELECT data FROM standings WHERE competition_id = $1 AND stage_num = 1 AND season_num = $2',
+      [COMPETITION_ID, CURRENT_SEASON]
+    );
+    if (!rows.length) return res.json([]);
 
-    if (docs.length > 0) {
-      const groups = docs.map(doc => ({
-        name: doc.name || GROUP_NAMES[(doc.groupNum || 1) - 1] || `Grupo ${doc.groupNum}`,
-        rows: (doc.rows || []).map((r, i) => ({
-          position: i + 1,
-          team: {
-            id: r.competitor?.id,
-            name: r.competitor?.name || r.teamName,
-            badgeUrl: r.competitor?.id ? images.getTeamBadgeUrl(r.competitor.id, r.competitor.imageVersion || 1) : null,
-          },
-          played: r.played || r.gamesPlayed || 0,
-          won: r.won || r.gamesWon || 0,
-          drawn: r.drawn || r.gamesEven || 0,
-          lost: r.lost || r.gamesLost || 0,
-          goalsFor: r.goalsFor || 0,
-          goalsAgainst: r.goalsAgainst || 0,
-          goalDiff: (r.goalDiff != null) ? r.goalDiff : ((r.goalsFor || 0) - (r.goalsAgainst || 0)),
-          points: r.points || 0,
-          recentForm: r.recentForm || (r.form || '').split('') || [],
-        })),
-      }));
-      return res.json(groups);
-    }
-
-    const apiData = await scores365.getStandings(MUNDIAL_ID, 1, CURRENT_SEASON);
+    const apiData = rows[0].data;
     if (!apiData?.standings?.length) return res.json([]);
 
-    const rows = apiData.standings[0].rows || [];
+    const standings = apiData.standings[0].rows || [];
     const groupsMap = new Map();
 
-    rows.forEach(r => {
+    standings.forEach(r => {
       const gn = r.groupNum || 1;
       if (!groupsMap.has(gn)) {
         groupsMap.set(gn, { name: GROUP_NAMES[gn - 1] || `Grupo ${gn}`, rows: [] });
@@ -69,10 +42,13 @@ async function getStandings(req, res, next) {
 
 async function getBrackets(req, res, next) {
   try {
-    const doc = await cosmos.getById('brackets', String(MUNDIAL_ID), COMPETITION_PK);
+    const { rows } = await pool.query('SELECT data FROM brackets WHERE competition_id = $1', [COMPETITION_ID]);
+    if (!rows.length) return res.json([]);
+
+    const doc = rows[0].data;
     if (!doc?.stages) return res.json([]);
 
-    res.json(doc.stages.map(s => ({
+    const stages = doc.stages.map(s => ({
       name: s.name,
       games: (s.games || []).map(g => ({
         id: g.id,
@@ -81,7 +57,8 @@ async function getBrackets(req, res, next) {
         score: g.homeCompetitor?.score != null ? { home: g.homeCompetitor.score, away: g.awayCompetitor?.score } : undefined,
         startTime: g.startTime,
       })),
-    })));
+    }));
+    res.json(stages);
   } catch (err) {
     next(err);
   }

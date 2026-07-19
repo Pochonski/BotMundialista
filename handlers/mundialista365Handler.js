@@ -1,9 +1,10 @@
 require('dotenv').config();
-const cosmos = require('../database/cosmos');
 const matchSearch = require('../services/matchSearch');
-const scores365 = require('../services/scores365Service');
+const mundialCache = require('../services/mundialCache');
+const { getCompetitionName } = require('../services/competitionName');
+const { pool } = require('../database/connection');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 
 const STAT_LABELS = {
   1: 'Goles',
@@ -63,27 +64,34 @@ function fmtDateTime(iso) {
   }
 }
 
-// =================================================================
-// FASE 2: TIPS Y TENDENCIAS
-// =================================================================
+async function fetchGameById(gameId) {
+  const game = await mundialCache.getGameById(Number(gameId));
+  if (game) return game;
+  return null;
+}
 
-/**
- * Tip compuesto para un partido: combina betting_tips (top 5 trends + confidenceScore)
- * con metadata del partido desde games.
- *
- * @param {Object} game - doc de Cosmos container games
- * @returns {Promise<string>}
- */
 async function formatTipForGame(game) {
   if (!game || !game.id) return '⚠️ Partido no encontrado.';
 
   const gameId = Number(game.id);
   let tipDoc = null;
+
   try {
-    tipDoc = await cosmos.getById('betting_tips', `${gameId}-composite`, gameId);
-  } catch (_) {
-    tipDoc = null;
-  }
+    const { rows } = await pool.query(
+      'SELECT data FROM trends WHERE scope = $1 AND game_id = $2',
+      ['game', gameId]
+    );
+    const trends = rows.map(r => r.data);
+    if (trends.length) {
+      const sorted = trends.sort((a, b) => (b.percentage || 0) - (a.percentage || 0));
+      tipDoc = {
+        confidenceScore: sorted.slice(0, 5).reduce((s, t) => s + (t.percentage || 0), 0) / 5,
+        topTrends: sorted.slice(0, 5),
+        allTrends: sorted,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+  } catch (_) {}
 
   let msg = `🎯 *TIP — ${fmtGameTitle(game).toUpperCase()}*\n\n`;
   msg += `🆔 Game ID: \`${gameId}\`\n`;
@@ -96,24 +104,9 @@ async function formatTipForGame(game) {
   msg += '\n';
 
   if (!tipDoc || !Array.isArray(tipDoc.topTrends) || tipDoc.topTrends.length === 0) {
-    try {
-      const live = await scores365.getTrends('game', gameId);
-      if (live?.trends?.length) {
-        const sorted = live.trends.sort((a, b) => (b.percentage || 0) - (a.percentage || 0));
-        tipDoc = {
-          confidenceScore: sorted.slice(0, 5).reduce((s, t) => s + (t.percentage || 0), 0) / 5,
-          topTrends: sorted.slice(0, 5),
-          allTrends: sorted,
-          generatedAt: new Date().toISOString(),
-        };
-      }
-    } catch (_) {}
-    if (!tipDoc || !Array.isArray(tipDoc.topTrends) || tipDoc.topTrends.length === 0) {
-      msg += `ℹ️ Aún no hay tips generados para este partido. `;
-      msg += `El tip se calcula cuando el bootstrap ingiere el partido.\n\n`;
-      msg += `💡 Probá \`/tendencias ${fmtGameTitle(game)}\` o esperá al próximo refresh.`;
-      return msg;
-    }
+    msg += `ℹ️ Aún no hay tips generados para este partido.\n\n`;
+    msg += `💡 Probá \`/tendencias ${fmtGameTitle(game)}\` o esperá al próximo refresh.`;
+    return msg;
   }
 
   const confidence = tipDoc.confidenceScore != null ? pct(tipDoc.confidenceScore) : '-';
@@ -135,61 +128,36 @@ async function formatTipForGame(game) {
   return msg;
 }
 
-/**
- * Resuelve "Brasil vs Argentina" → gameId y devuelve el tip.
- * @param {string} home
- * @param {string} away
- */
 async function getTipPartido(home, away) {
   const game = await matchSearch.findGameByTeams(home, away);
   if (!game) {
-    return `⚠️ No encontré un partido entre *${home}* y *${away}* en el Mundial.\n\n` +
+    return `⚠️ No encontré un partido entre *${home}* y *${away}*.\n\n` +
       `💡 Probá \`/live\` para ver partidos en vivo o \`/tendencias\` para el top Mundial.`;
   }
   return formatTipForGame(game);
 }
 
-/**
- * Lista tendencias (top Mundial o por gameId).
- * @param {string} scope - 'competition' o 'game'
- * @param {string|number|null} id - competitionId (5930) o gameId
- * @param {number} limit
- */
 async function getTendencias(scope = 'competition', id = null, limit = 10) {
   const safeScope = scope === 'game' ? 'game' : 'competition';
-  const safeId = id != null ? Number(id) : MUNDIAL_ID;
-
-  let query;
-  if (safeScope === 'competition') {
-    query = { query: 'SELECT c.text, c.percentage, c.betCTA, c.lineTypeId, c.competitionId FROM c WHERE c.scope = @s AND c.competitionId = @c ORDER BY c.percentage DESC OFFSET 0 LIMIT @lim', parameters: [{ name: '@s', value: 'competition' }, { name: '@c', value: safeId }, { name: '@lim', value: limit }] };
-  } else {
-    query = { query: 'SELECT c.text, c.percentage, c.betCTA, c.lineTypeId, c.gameId FROM c WHERE c.scope = @s AND c.gameId = @g ORDER BY c.percentage DESC OFFSET 0 LIMIT @lim', parameters: [{ name: '@s', value: 'game' }, { name: '@g', value: safeId }, { name: '@lim', value: limit }] };
-  }
+  const safeId = id != null ? Number(id) : COMPETITION_ID;
 
   let trends = [];
   try {
-    trends = await cosmos.queryAll('trends', query);
+    const { rows } = await pool.query(
+      'SELECT data FROM trends WHERE scope = $1 AND entity_id = $2',
+      [safeScope, safeId]
+    );
+    trends = rows.map(r => r.data);
   } catch (e) {
     return `⚠️ No pude leer tendencias: ${e.message}`;
   }
 
   if (!trends || trends.length === 0) {
     if (safeScope === 'game') {
-      try {
-        const live = await scores365.getTrends('game', safeId);
-        if (live?.trends?.length) {
-          trends = live.trends.map((t) => ({
-            text: t.text, percentage: t.percentage, betCTA: t.betCTA, lineTypeId: t.lineTypeId, gameId: safeId,
-          }));
-        }
-      } catch (_) {}
-      if (!trends || trends.length === 0) {
-        return `ℹ️ No hay tendencias registradas para el gameId \`${safeId}\`. ` +
-          `Las tendencias se generan cuando el bootstrap ingiere el partido.`;
-      }
-    } else {
-      return `ℹ️ No hay tendencias del Mundial todavía. Corré \`node scripts/cosmos-bootstrap.js\`.`;
+      return `ℹ️ No hay tendencias registradas para el gameId \`${safeId}\`. ` +
+        `Las tendencias se generan cuando el partido está programado.`;
     }
+    return `ℹ️ No hay tendencias disponibles todavía.`;
   }
 
   const seen = new Set();
@@ -226,10 +194,11 @@ async function getTendencias(scope = 'competition', id = null, limit = 10) {
 
   let title;
   if (safeScope === 'game') {
-    const game = await cosmos.getById('games', String(safeId), MUNDIAL_ID);
+    const game = await fetchGameById(safeId);
     title = `🔥 *TENDENCIAS — ${(game ? fmtGameTitle(game) : `Game ${safeId}`).toUpperCase()}*`;
   } else {
-    title = `🔥 *TOP TENDENCIAS — MUNDIAL 2026*`;
+    const compName = await getCompetitionName(COMPETITION_ID);
+    title = `🔥 *TOP TENDENCIAS — ${compName}*`;
   }
 
   let msg = `${title}\n\n`;
@@ -244,14 +213,6 @@ async function getTendencias(scope = 'competition', id = null, limit = 10) {
   return msg;
 }
 
-/**
- * Resuelve "Brasil vs Argentina" → gameId y devuelve las tendencias del partido.
- * Variante user-facing de getTendencias('game', gameId).
- *
- * @param {string} home
- * @param {string} away
- * @param {number} limit
- */
 async function getTendenciasByTeams(home, away, limit = 10) {
   if (!home || !away) {
     return '⚠️ Formato: `/tendencias [eq1] vs [eq2]`\n\nEj: `/tendencias brasil vs argentina`';
@@ -259,7 +220,7 @@ async function getTendenciasByTeams(home, away, limit = 10) {
 
   const game = await matchSearch.findGameByTeams(home, away);
   if (!game) {
-    return `⚠️ No encontré un partido entre *${home}* y *${away}* en el Mundial.\n\n` +
+    return `⚠️ No encontré un partido entre *${home}* y *${away}*.\n\n` +
       `💡 Probá \`/live\` para ver partidos en vivo ahora, o usá el top Mundial: \`/tendencias\`.`;
   }
 
@@ -276,22 +237,15 @@ async function getTendenciasByTeams(home, away, limit = 10) {
   return header + result;
 }
 
-// =================================================================
-// FASE 4: STATS VIVO Y ALINEACIONES
-// =================================================================
-
-/**
- * Devuelve partidos en vivo del Mundial.
- */
 async function getLiveGames() {
   const games = await matchSearch.findLiveGames();
   if (!games || games.length === 0) {
-    return `🟢 *MUNDIAL — EN VIVO*\n\n` +
+    return `🟢 *EN VIVO*\n\n` +
       `No hay partidos en vivo en este momento.\n\n` +
       `💡 Tip: \`/proximos\` para ver los próximos o \`/partidos\` para los de hoy.`;
   }
 
-  let msg = `🔴 *MUNDIAL — EN VIVO (${games.length})*\n\n`;
+  let msg = `🔴 *EN VIVO (${games.length})*\n\n`;
   games.forEach((g) => {
     const home = g.homeCompetitor?.name || '?';
     const away = g.awayCompetitor?.name || '?';
@@ -304,30 +258,37 @@ async function getLiveGames() {
   return msg.trim();
 }
 
-/**
- * Lee el último snapshot de game_snapshots y devuelve stats agregadas por equipo.
- * Si no hay snapshot, devuelve mensaje claro.
- *
- * @param {string|number} gameId
- */
 async function getStatsVivo(gameId) {
   if (!/^\d+$/.test(String(gameId))) {
     return '⚠️ gameId inválido. Usá un número (ej: `/stats-vivo 4749268`).';
   }
   const gid = Number(gameId);
 
-  const game = await cosmos.getById('games', String(gid), MUNDIAL_ID);
+  const game = await fetchGameById(gid);
   if (!game) {
-    return `⚠️ No encontré el partido con gameId \`${gid}\` en el Mundial.`;
+    return `⚠️ No encontré el partido con gameId \`${gid}\`.`;
   }
 
-  let snap = null;
+  let snapshot = null;
   try {
-    snap = await cosmos.queryOne('game_snapshots',
-      { query: 'SELECT TOP 1 c.statistics, c.statisticsFilters, c.lastUpdateId, c.fetchedAt FROM c WHERE c.gameId = @g ORDER BY c._ts DESC', parameters: [{ name: '@g', value: gid }] });
-  } catch (_) { /* ignore */ }
+    const r = await pool.query(
+      "SELECT last_snapshot, updated_at FROM scores365_state WHERE game_id = $1",
+      [gid]
+    );
+    if (r.rows[0]?.last_snapshot) {
+      snapshot = r.rows[0].last_snapshot;
+    }
+  } catch (_) {}
 
-  if (!snap || !Array.isArray(snap.statistics) || snap.statistics.length === 0) {
+  if (!snapshot || !Array.isArray(snapshot.statistics) || snapshot.statistics.length === 0) {
+    const { rows } = await pool.query('SELECT data FROM game_stats WHERE game_id = $1', [gid]);
+    if (rows.length && rows[0].data?.statistics?.length) {
+      const liveStats = rows[0].data;
+      snapshot = { statistics: liveStats.statistics, statisticsFilters: liveStats.statisticsFilters || [], lastUpdateId: liveStats.lastUpdateId, fetchedAt: new Date().toISOString() };
+    }
+  }
+
+  if (!snapshot || !Array.isArray(snapshot.statistics) || snapshot.statistics.length === 0) {
     return `ℹ️ No hay snapshot en vivo para *${fmtGameTitle(game)}* todavía.\n\n` +
       `El poller guarda datos cada 25s durante partidos EN VIVO. Si el partido ya terminó, probá \`/h2h ${gid}\`.`;
   }
@@ -338,7 +299,7 @@ async function getStatsVivo(gameId) {
   const awayName = game.awayCompetitor?.name || 'Visitante';
 
   const find = (statId, compId) => {
-    const s = snap.statistics.find((x) => x.id === statId && x.competitorId === compId);
+    const s = snapshot.statistics.find((x) => x.id === statId && x.competitorId === compId);
     return s ? s.value : '-';
   };
 
@@ -348,7 +309,7 @@ async function getStatsVivo(gameId) {
   let msg = `📊 *STATS EN VIVO — ${fmtGameTitle(game).toUpperCase()}*\n\n`;
   msg += `🔴 Marcador: *${homeName} ${homeScore} - ${awayScore} ${awayName}*\n`;
   msg += `🆔 Game ID: \`${gid}\` · ⏱ ${game.statusText || '-'}\n`;
-  msg += `🕒 Snapshot: ${snap.fetchedAt ? snap.fetchedAt.split('T')[0] + ' ' + (snap.fetchedAt.split('T')[1] || '').slice(0, 5) : '-'}\n\n`;
+  msg += `🕒 Snapshot: ${snapshot.fetchedAt ? snapshot.fetchedAt.split('T')[0] + ' ' + (snapshot.fetchedAt.split('T')[1] || '').slice(0, 5) : '-'}\n\n`;
 
   msg += `┌────────────────────────────┬──────────┬──────────┐\n`;
   msg += `│ Métrica                    │ ${pad(homeName, 8)} │ ${pad(awayName, 8)} │\n`;
@@ -373,35 +334,22 @@ function pad(s, w) {
   return s + ' '.repeat(Math.max(0, w - s.length));
 }
 
-/**
- * Devuelve la alineación titular de un partido desde game_overviews o fallback a game_h2h.
- *
- * @param {string|number} gameId
- */
 async function getAlineacion(gameId) {
   if (!/^\d+$/.test(String(gameId))) {
     return '⚠️ gameId inválido. Usá un número (ej: `/alineacion 4749268`).';
   }
   const gid = Number(gameId);
 
-  const game = await cosmos.getById('games', String(gid), MUNDIAL_ID);
+  const game = await fetchGameById(gid);
   if (!game) {
-    return `⚠️ No encontré el partido con gameId \`${gid}\` en el Mundial.`;
+    return `⚠️ No encontré el partido con gameId \`${gid}\` .`;
   }
 
-  const scores365 = require('../services/scores365Service');
   let overview = null;
   try {
-    overview = await cosmos.queryOne('game_overviews',
-      { query: 'SELECT TOP 1 c.game, c.lastUpdateId FROM c WHERE c.gameId = @g ORDER BY c._ts DESC', parameters: [{ name: '@g', value: gid }] });
-  } catch (_) { /* ignore */ }
-
-  if (!overview || !overview.game) {
-    try {
-      const h2h = await cosmos.getById('game_h2h', String(gid), gid);
-      if (h2h && h2h.game) overview = { game: h2h.game };
-    } catch (_) { /* ignore */ }
-  }
+    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
+    if (rows.length) overview = rows[0].data;
+  } catch (_) {}
 
   let g = overview?.game || null;
   if (g) {
@@ -409,17 +357,12 @@ async function getAlineacion(gameId) {
     const awayLineup = g.awayCompetitor?.lineups?.members || [];
     if (homeLineup.length === 0 && awayLineup.length === 0) {
       try {
-        const matchupId = `${game.homeCompetitor?.id || 0}-${game.awayCompetitor?.id || 0}-${MUNDIAL_ID}`;
-        const fresh = await scores365.getGameOverview(gid, matchupId);
-        if (fresh?.game?.homeCompetitor?.lineups?.members?.length || fresh?.game?.awayCompetitor?.lineups?.members?.length) {
-          g = fresh.game;
-          overview = { game: g, lastUpdateId: fresh.lastUpdateId };
-          cosmos.upsert('game_overviews', {
-            id: `${gid}-${fresh.lastUpdateId || 0}`,
-            gameId: gid, lastUpdateId: fresh.lastUpdateId, ...fresh, _fetchedAt: new Date().toISOString(),
-          }).catch(() => {});
+        const matchupId = `${game.homeCompetitor?.id || 0}-${game.awayCompetitor?.id || 0}-${COMPETITION_ID}`;
+        const { rows: fresh } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
+        if (fresh.length && fresh[0].data?.game?.homeCompetitor?.lineups?.members?.length) {
+          g = fresh[0].data.game;
         }
-      } catch (_) { /* ignore */ }
+      } catch (_) {}
     }
   }
 
@@ -479,18 +422,15 @@ async function getAlineacion(gameId) {
   return msg;
 }
 
-/**
- * Stats pre-partido desde game_pre_stats (forma reciente, lesiones).
- */
 async function getPrevia(gameId) {
   if (!/^\d+$/.test(String(gameId))) {
     return '⚠️ gameId inválido. Usá un número (ej: `/previa 4749268`).';
   }
   const gid = Number(gameId);
 
-  const game = await cosmos.getById('games', String(gid), MUNDIAL_ID);
+  const game = await fetchGameById(gid);
   if (!game) {
-    return `⚠️ No encontré el partido con gameId \`${gid}\` en el Mundial.`;
+    return `⚠️ No encontré el partido con gameId \`${gid}\` .`;
   }
 
   if (game.statusGroup === 4) {
@@ -498,15 +438,16 @@ async function getPrevia(gameId) {
       `Para análisis, probá \`/h2h ${gid}\`.`;
   }
 
-  const pre = await cosmos.getById('game_pre_stats', String(gid), gid);
-  if (!pre) {
+  let pre = null;
+  try {
+    const { rows } = await pool.query('SELECT data FROM game_pre_stats WHERE game_id = $1', [gid]);
+    if (rows.length) pre = rows[0].data;
+  } catch (_) {}
+
+  const stats = pre?.statistics || [];
+  if (!Array.isArray(stats) || stats.length === 0) {
     return `ℹ️ No hay pre-stats para *${fmtGameTitle(game)}* todavía. ` +
       `Se generan cuando el partido está programado (statusGroup=2).`;
-  }
-
-  const stats = pre.statistics || [];
-  if (!Array.isArray(stats) || stats.length === 0) {
-    return `ℹ️ El documento pre-stats de *${fmtGameTitle(game)}* está vacío.`;
   }
 
   const homeId = game.homeCompetitor?.id;
@@ -539,21 +480,23 @@ async function getPrevia(gameId) {
   return msg.trim();
 }
 
-/**
- * Historial entre los equipos (game_h2h).
- */
 async function getH2H(gameId) {
   if (!/^\d+$/.test(String(gameId))) {
     return '⚠️ gameId inválido. Usá un número (ej: `/h2h 4749268`).';
   }
   const gid = Number(gameId);
 
-  const game = await cosmos.getById('games', String(gid), MUNDIAL_ID);
+  const game = await fetchGameById(gid);
   if (!game) {
-    return `⚠️ No encontré el partido con gameId \`${gid}\` en el Mundial.`;
+    return `⚠️ No encontré el partido con gameId \`${gid}\` .`;
   }
 
-  const h2h = await cosmos.getById('game_h2h', String(gid), gid);
+  let h2h = null;
+  try {
+    const { rows } = await pool.query('SELECT data FROM game_h2h WHERE game_id = $1', [gid]);
+    if (rows.length) h2h = rows[0].data;
+  } catch (_) {}
+
   if (!h2h || !h2h.game) {
     return `ℹ️ No tengo historial H2H para *${fmtGameTitle(game)}*.`;
   }
@@ -612,21 +555,23 @@ async function getH2H(gameId) {
   return msg.trim();
 }
 
-/**
- * Predicciones de la comunidad para un partido desde container predictions.
- */
 async function getPredicciones(gameId) {
   if (!/^\d+$/.test(String(gameId))) {
     return '⚠️ gameId inválido. Usá un número (ej: `/predicciones 4749268`).';
   }
   const gid = Number(gameId);
 
-  const game = await cosmos.getById('games', String(gid), MUNDIAL_ID);
+  const game = await fetchGameById(gid);
   if (!game) {
-    return `⚠️ No encontré el partido con gameId \`${gid}\` en el Mundial.`;
+    return `⚠️ No encontré el partido con gameId \`${gid}\` .`;
   }
 
-  const pred = await cosmos.getById('predictions', String(gid), gid);
+  let pred = null;
+  try {
+    const { rows } = await pool.query('SELECT data FROM predictions WHERE game_id = $1', [gid]);
+    if (rows.length) pred = rows[0].data;
+  } catch (_) {}
+
   if (!pred || !pred.promotedPredictions?.predictions) {
     return `ℹ️ No hay predicciones de la comunidad para *${fmtGameTitle(game)}*.`;
   }
@@ -651,47 +596,34 @@ async function getPredicciones(gameId) {
   return msg.trim();
 }
 
-// =================================================================
-// FASE 5: FIXTURES, OUTRIGHTS, ODDS LINES
-// =================================================================
-
-/**
- * Próximos partidos del Mundial desde container fixtures.
- */
 async function getFixture() {
   try {
-    const doc = await cosmos.getById('fixtures', `${MUNDIAL_ID}-fixtures`, MUNDIAL_ID);
-    if (!doc || !doc.games?.length) {
-      const live = await scores365.getFixtures(MUNDIAL_ID);
-      if (!live?.games?.length) {
-        return `📅 *PRÓXIMOS PARTIDOS*\n\nNo hay partidos programados.`;
-      }
-      doc.games = live.games;
+    const { rows } = await pool.query(
+      'SELECT data FROM games WHERE competition_id = $1 AND status_group = 2 ORDER BY start_time ASC LIMIT 20',
+      [COMPETITION_ID]
+    );
+    const games = rows.map(r => r.data);
+
+    if (!games.length) {
+      return `📅 *PRÓXIMOS PARTIDOS*\n\nNo hay partidos programados.`;
     }
 
-    const now = new Date();
-    const upcoming = doc.games
-      .filter((g) => new Date(g.startTime || g.date || 0) > now)
-      .sort((a, b) => new Date(a.startTime || a.date) - new Date(b.startTime || b.date))
-      .slice(0, 20);
-
-    if (!upcoming.length) return `📅 *PRÓXIMOS PARTIDOS*\n\nNo hay partidos próximos.`;
-
     const byDate = {};
-    for (const g of upcoming) {
-      const d = (g.startTime || g.date || '').split('T')[0] || 'sin fecha';
+    for (const g of games) {
+      const d = (g.startTime || '').split('T')[0] || 'sin fecha';
       if (!byDate[d]) byDate[d] = [];
       byDate[d].push(g);
     }
 
-    let msg = `📅 *PRÓXIMOS PARTIDOS — MUNDIAL 2026*\n\n`;
+    const compName = await getCompetitionName(COMPETITION_ID);
+    let msg = `📅 *PRÓXIMOS PARTIDOS — ${compName}*\n\n`;
     Object.keys(byDate).slice(0, 5).forEach((d) => {
       const dateLabel = new Date(d).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
       msg += `━━━ *${dateLabel}* ━━━\n`;
       byDate[d].forEach((g) => {
         const home = g.homeCompetitor?.name || g.homeTeam || '?';
         const away = g.awayCompetitor?.name || g.awayTeam || '?';
-        const time = g.startTime ? fmtDateTime(g.startTime) : g.time || '';
+        const time = g.startTime ? fmtDateTime(g.startTime) : '';
         const venue = g.venue?.name || g.stadium || '';
         msg += `⚽ *${home}* vs *${away}*\n`;
         if (time) msg += `   🕐 ${time}\n`;
@@ -705,29 +637,28 @@ async function getFixture() {
   }
 }
 
-/**
- * Cuotas outright (campeón, goleador, etc.) desde container odds_misc.
- */
 async function getOutrights() {
   try {
-    const doc = await cosmos.getById('odds_misc', `outrights-${MUNDIAL_ID}`, 'outrights');
-    if (!doc || !doc.markets?.length) {
-      const live = await scores365.getOutrights(MUNDIAL_ID);
-      if (!live?.markets?.length) {
-        return `🏆 *CUOTAS OUTRIGHT*\n\nNo hay cuotas disponibles todavía.`;
-      }
-      doc.markets = live.markets;
+    const { rows } = await pool.query('SELECT data FROM odds_outrights WHERE competition_id = $1', [COMPETITION_ID]);
+    if (!rows.length) {
+      return `🏆 *CUOTAS OUTRIGHT*\n\nNo hay cuotas disponibles todavía.`;
     }
 
-    let msg = `🏆 *CUOTAS OUTRIGHT — MUNDIAL 2026*\n\n`;
-    doc.markets.slice(0, 8).forEach((m, i) => {
+    const live = rows[0].data;
+    if (!live?.markets?.length) {
+      return `🏆 *CUOTAS OUTRIGHT*\n\nNo hay cuotas disponibles todavía.`;
+    }
+
+    const compName = await getCompetitionName(COMPETITION_ID);
+    let msg = `🏆 *CUOTAS OUTRIGHT — ${compName}*\n\n`;
+    live.markets.slice(0, 8).forEach((m, i) => {
       msg += `📊 *${m.marketName || m.title || 'Mercado ' + (i + 1)}*\n`;
       if (Array.isArray(m.lines)) {
         m.lines.slice(0, 10).forEach((line) => {
           const name = line.name || line.competitorName || line.participantName || line.label || '?';
           const odd = line.price || line.odds || line.value || '-';
-          const pct = line.percentage ? pct(line.percentage) : '';
-          msg += `   ${name}: *${odd}* ${pct ? `_(${pct})_` : ''}\n`;
+          const pct2 = line.percentage ? pct(line.percentage) : '';
+          msg += `   ${name}: *${odd}* ${pct2 ? `_(${pct2})_` : ''}\n`;
         });
       }
       msg += '\n';
@@ -739,32 +670,22 @@ async function getOutrights() {
   }
 }
 
-/**
- * Cuotas detalladas de un partido desde container odds_lines.
- */
 async function getOdds(gameId) {
   if (!/^\d+$/.test(String(gameId))) {
     return '⚠️ gameId inválido. Usá un número (ej: `/odds 4749268`).';
   }
   const gid = Number(gameId);
 
-  const game = await cosmos.getById('games', String(gid), MUNDIAL_ID);
+  const game = await fetchGameById(gid);
   if (!game) {
-    return `⚠️ No encontré el partido con gameId \`${gid}\` en el Mundial.`;
+    return `⚠️ No encontré el partido con gameId \`${gid}\` .`;
   }
 
   let doc = null;
   try {
-    doc = await cosmos.queryOne('odds_lines',
-      { query: 'SELECT TOP 1 * FROM c WHERE c.gameId = @g ORDER BY c._ts DESC', parameters: [{ name: '@g', value: gid }] });
+    const { rows } = await pool.query('SELECT data FROM odds_lines WHERE game_id = $1', [gid]);
+    if (rows.length) doc = rows[0].data;
   } catch (_) {}
-
-  if (!doc || !doc.lines?.length) {
-    try {
-      const live = await scores365.getOddsLines(gid);
-      if (live?.lines?.length) doc = live;
-    } catch (_) {}
-  }
 
   if (!doc || !doc.lines?.length) {
     return `ℹ️ No hay cuotas para *${fmtGameTitle(game)}* todavía.`;
@@ -797,7 +718,7 @@ async function getOdds(gameId) {
 }
 
 module.exports = {
-  MUNDIAL_ID,
+  COMPETITION_ID,
   getTipPartido,
   formatTipForGame,
   getTendencias,

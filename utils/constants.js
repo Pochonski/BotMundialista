@@ -1,12 +1,8 @@
-// Constantes del proyecto - Mundial 2026
-// Nota: Los equipos ahora se buscan dinámicamente via API usando TEAM_NAME_MAP
-// Esta lista es para referencia rápida y detección de equipos en el parser
+// Constantes del proyecto - ScoreHub
+// Los alias de competencias se cargan dinámicamente desde competition_aliases
+// Los equipos se buscan via teamAliases.js con fallback a DB
 
-const LIGAS = {
-  MUNDIAL: { id: 77, nombre: 'Copa Mundial 2026', pais: 'Mundial' }
-};
-
-// Equipos del Mundial 2026 - IDs correctos de la API
+// Equipos populares - IDs correctos de la API
 // Usados para detección rápida en queryParser.js
 const EQUIPOS_MUNDIAL = {
   // CONCACAF
@@ -118,7 +114,6 @@ const ESTADOS_USUARIO = {
 const EQUIPOS_POPULARES = EQUIPOS_MUNDIAL;
 
 module.exports = {
-  LIGAS,
   EQUIPOS_POPULARES,
   EQUIPOS_MUNDIAL,
   INTENTOS,

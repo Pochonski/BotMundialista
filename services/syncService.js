@@ -41,10 +41,10 @@ async function upsertGames(games) {
     status_group: g.statusGroup ?? null,
     status_text: g.statusText ?? null,
     start_time: g.startTime ? new Date(g.startTime).toISOString() : null,
-    home_competitor_id: g.homeCompetitorId ?? null,
-    away_competitor_id: g.awayCompetitorId ?? null,
-    home_score: g.homeScore ?? null,
-    away_score: g.awayScore ?? null,
+    home_competitor_id: g.homeCompetitor?.id ?? g.homeCompetitorId ?? null,
+    away_competitor_id: g.awayCompetitor?.id ?? g.awayCompetitorId ?? null,
+    home_score: g.homeCompetitor?.score ?? g.homeScore ?? null,
+    away_score: g.awayCompetitor?.score ?? g.awayScore ?? null,
     stage: g.stage ?? null,
     season_num: g.seasonNum ?? null,
     data: JSON.stringify(g),
@@ -394,9 +394,10 @@ async function syncLiveStats() {
 async function syncCatalog() {
   log('Syncing catalog...');
   try {
-    const [compData, topData] = await Promise.allSettled([
+    const [compData, topData, standingsData] = await Promise.allSettled([
       api.getCompetition(COMPETITION_ID),
       api.getTopCompetitors(300),
+      api.getStandings(COMPETITION_ID, 1, CURRENT_SEASON),
     ]);
 
     if (compData.status === 'fulfilled') {
@@ -410,33 +411,53 @@ async function syncCatalog() {
         }];
         await upsertMany('competitions', 'id', rows);
       }
+    }
 
-      const competitors = compData.value?.competitors || [];
-      const compRows = competitors.map(c => ({
-        id: c.id,
-        competition_id: COMPETITION_ID,
-        name: c.name ?? null,
-        data: JSON.stringify(c),
-        updated_at: new Date().toISOString(),
-      }));
-      if (compRows.length) {
-        await pool.query('DELETE FROM competitors WHERE competition_id = $1', [COMPETITION_ID]);
-        await upsertMany('competitors', 'id', compRows);
+    // Source of truth for the Mundial competitors: the standings endpoint.
+    // Each row.competitor has mainCompetitionId matching COMPETITION_ID.
+    const competitorsByComp = new Map();
+    if (standingsData.status === 'fulfilled') {
+      const stages = standingsData.value?.standings ?? [];
+      for (const stage of stages) {
+        for (const row of stage.rows ?? []) {
+          const c = row.competitor;
+          if (!c || !c.id) continue;
+          const cid = c.mainCompetitionId ?? c.competitionId ?? null;
+          competitorsByComp.set(c.id, { competitor: c, competitionId: cid });
+        }
+      }
+      // Ensure Mundial competitors are tagged with COMPETITION_ID even if the
+      // API returns a different mainCompetitionId for some rows.
+      for (const [, v] of competitorsByComp) {
+        if (v.competitor.id && (v.competitor.mainCompetitionId ?? null) === null) {
+          v.competitionId = COMPETITION_ID;
+        }
       }
     }
 
+    // Merge in any extra teams from getTopCompetitors (clubs, leagues) that
+    // aren't already tracked.
     if (topData.status === 'fulfilled') {
-      const competitors = topData.value?.competitors ?? [];
-      for (const c of competitors) {
-        const rows = [{
-          id: c.id,
-          competition_id: c.competitionId ?? null,
-          name: c.name ?? null,
-          data: JSON.stringify(c),
-          updated_at: new Date().toISOString(),
-        }];
-        await upsertMany('competitors', 'id', rows);
+      for (const c of topData.value?.competitors ?? []) {
+        if (!competitorsByComp.has(c.id)) {
+          competitorsByComp.set(c.id, { competitor: c, competitionId: c.competitionId ?? null });
+        }
       }
+    }
+
+    if (competitorsByComp.size) {
+      const rows = [];
+      for (const { competitor, competitionId } of competitorsByComp.values()) {
+        rows.push({
+          id: competitor.id,
+          competition_id: competitionId,
+          name: competitor.name ?? null,
+          data: JSON.stringify(competitor),
+          updated_at: new Date().toISOString(),
+        });
+      }
+      await pool.query('DELETE FROM competitors WHERE competition_id = $1', [COMPETITION_ID]);
+      await upsertMany('competitors', 'id', rows);
     }
 
     log('Synced catalog');

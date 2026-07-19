@@ -1,34 +1,33 @@
-const path = require('path');
-const cosmos = require(path.join(__dirname, '..', '..', '..', 'database', 'cosmos'));
+const { pool } = require('../../../database/connection');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
-const COMPETITION_PK = String(MUNDIAL_ID);
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 
 async function getNews(req, res, next) {
   try {
     const limit = Math.min(50, parseInt(req.query.limit) || 20);
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const offset = (page - 1) * limit;
-    const scope = req.query.scope || 'comp';
+    const scope = req.query.scope || 'competition';
+    const entityId = scope === 'competition' ? COMPETITION_ID : COMPETITION_ID;
 
-    const news = await cosmos.queryAll('news', {
-      query: 'SELECT c.id, c.title, c.publishDate, c.image, c.url, c.sourceId, c.gameId FROM c WHERE c.scope = @s AND c.competitionId = @compId ORDER BY c.publishDate DESC OFFSET @offset LIMIT @limit',
-      parameters: [
-        { name: '@s', value: scope },
-        { name: '@compId', value: COMPETITION_PK },
-        { name: '@offset', value: offset },
-        { name: '@limit', value: limit },
-      ],
+    const { rows } = await pool.query(
+      'SELECT data FROM news WHERE scope = $1 AND entity_id = $2 ORDER BY publish_date DESC NULLS LAST',
+      [scope, entityId]
+    );
+    const allNews = rows.map(r => {
+      const n = r.data;
+      return {
+        id: n.id,
+        title: n.title,
+        publishDate: n.publishDate,
+        image: n.image || null,
+        url: n.url,
+        sourceId: n.sourceId,
+        gameId: n.gameId,
+      };
     });
-    res.json(news.map(n => ({
-      id: n.id,
-      title: n.title,
-      publishDate: n.publishDate,
-      image: n.image || null,
-      url: n.url,
-      sourceId: n.sourceId,
-      gameId: n.gameId,
-    })));
+
+    const offset = (page - 1) * limit;
+    res.json(allNews.slice(offset, offset + limit));
   } catch (err) {
     next(err);
   }
@@ -37,19 +36,22 @@ async function getNews(req, res, next) {
 async function getNewsByGame(req, res, next) {
   try {
     const { id } = req.params;
-
-    const news = await cosmos.queryAll('news', {
-      query: 'SELECT * FROM c WHERE c.scope = @scope AND c.gameId = @gid ORDER BY c.publishDate DESC',
-      parameters: [{ name: '@scope', value: 'game' }, { name: '@gid', value: Number(id) }],
+    const { rows } = await pool.query(
+      'SELECT data FROM news WHERE scope = $1 AND entity_id = $2 ORDER BY publish_date DESC NULLS LAST',
+      ['game', Number(id)]
+    );
+    const data = rows.map(r => {
+      const n = r.data;
+      return {
+        id: n.id,
+        title: n.title,
+        publishDate: n.publishDate,
+        image: n.image || null,
+        url: n.url,
+        sourceId: n.sourceId,
+      };
     });
-    res.json(news.map(n => ({
-      id: n.id,
-      title: n.title,
-      publishDate: n.publishDate,
-      image: n.image || null,
-      url: n.url,
-      sourceId: n.sourceId,
-    })));
+    res.json(data);
   } catch (err) {
     next(err);
   }

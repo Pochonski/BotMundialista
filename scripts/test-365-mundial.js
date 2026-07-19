@@ -3,7 +3,7 @@ require('dotenv').config();
 const api = require('../services/scores365Service');
 const cosmos = require('../database/cosmos');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 
 const C = { r: '\x1b[0m', g: '\x1b[32m', y: '\x1b[33m', b: '\x1b[34m', cy: '\x1b[36m', bld: '\x1b[1m', dim: '\x1b[2m', red: '\x1b[31m' };
 const ok = (m) => console.log(`  ${C.g}✓${C.r} ${m}`);
@@ -88,11 +88,11 @@ async function containerCounts() {
       const api = require('../services/scores365Service');
       const c2 = require('../database/cosmos');
       if (c === 'brackets') {
-        const b = await api.getBrackets(5930);
-        await c2.upsert('brackets', { id: '5930', competitionId: 5930, ...b, _fetchedAt: new Date().toISOString() });
+        const b = await api.getBrackets(COMPETITION_ID);
+        await c2.upsert('brackets', { id: String(COMPETITION_ID), competitionId: COMPETITION_ID, ...b, _fetchedAt: new Date().toISOString() });
       } else if (c === 'standings') {
-        const s = await api.getStandings(5930, 1, 25);
-        await c2.upsert('standings', { id: '5930-s1-se25', competitionId: 5930, stageNum: 1, seasonNum: 25, ...s, _fetchedAt: new Date().toISOString() });
+        const s = await api.getStandings(COMPETITION_ID, 1, 25);
+        await c2.upsert('standings', { id: `${COMPETITION_ID}-s1-se25`, competitionId: COMPETITION_ID, stageNum: 1, seasonNum: 25, ...s, _fetchedAt: new Date().toISOString() });
       }
       const n2 = await c2.count(c).catch(() => -1);
       console.log(`  ${C.y}\u26a0${C.r} ${c} post-recovery: count=${n2}`);
@@ -145,9 +145,9 @@ async function teamStatsOutput(gameId) {
 
 async function gameStatsTest() {
   await header('3. GAME STATS DESDE COSMOS (último snapshot de partidos finalizados)');
-  const games = await step('listar Mundial games finalizados', () =>
+  const games = await step('listar games finalizados', () =>
     cosmos.queryAll('games',
-      'SELECT c.id, c.homeCompetitor, c.awayCompetitor, c.statusGroup FROM c WHERE c.competitionId = 5930 AND c.statusGroup = 4 ORDER BY c.startTime DESC OFFSET 0 LIMIT 3'));
+      `SELECT c.id, c.homeCompetitor, c.awayCompetitor, c.statusGroup FROM c WHERE c.competitionId = ${COMPETITION_ID} AND c.statusGroup = 4 ORDER BY c.startTime DESC OFFSET 0 LIMIT 3`));
   check('>= 3 partidos finalizados', games.length >= 3, `got: ${games.length}`);
 
   for (const g of games) {
@@ -160,7 +160,7 @@ async function gameStatsTest() {
     if (!ov[0]?.game?.members) {
       info(`  overview no disponible para ${g.id}, re-fetcheando de 365scores...`);
       try {
-        const matchupId = `${g.homeCompetitor?.id}-${g.awayCompetitor?.id}-5930`;
+        const matchupId = `${g.homeCompetitor?.id}-${g.awayCompetitor?.id}-${COMPETITION_ID}`;
         const fresh = await api.getGameOverview(g.id, matchupId);
         const idOv = `${g.id}-${fresh.lastUpdateId || 0}`;
         await cosmos.upsert('game_overviews', { id: idOv, gameId: Number(g.id), lastUpdateId: fresh.lastUpdateId, ...fresh, _fetchedAt: new Date().toISOString() });
@@ -189,9 +189,9 @@ async function gameStatsTest() {
 
 async function liveDeltaTest() {
   await header('4. LIVE DELTA via lastUpdateId (statusGroup 2=Prog., 1=En vivo)');
-  const games = await step('listar juegos del Mundial próximos o en vivo', () =>
+  const games = await step('listar juegos próximos o en vivo', () =>
     cosmos.queryAll('games',
-      'SELECT c.id, c.homeCompetitor, c.awayCompetitor, c.statusGroup, c.statusText FROM c WHERE c.competitionId = 5930 AND (c.statusGroup = 1 OR c.statusGroup = 2) ORDER BY c.startTime ASC OFFSET 0 LIMIT 2'));
+      `SELECT c.id, c.homeCompetitor, c.awayCompetitor, c.statusGroup, c.statusText FROM c WHERE c.competitionId = ${COMPETITION_ID} AND (c.statusGroup = 1 OR c.statusGroup = 2) ORDER BY c.startTime ASC OFFSET 0 LIMIT 2`));
   if (!games.length) {
     info('sin juegos en vivo o próximos → saltando test live delta');
     return;
@@ -199,7 +199,7 @@ async function liveDeltaTest() {
   for (const g of games) {
     info(`${g.homeCompetitor?.name} vs ${g.awayCompetitor?.name} (id=${g.id}, status: ${g.statusText})`);
     const stateId = `state:${g.id}`;
-    const state = await step(`leer state ${g.id}`, () => cosmos.getById('games', stateId, MUNDIAL_ID));
+    const state = await step(`leer state ${g.id}`, () => cosmos.getById('games', stateId, COMPETITION_ID));
 
     const data = await step(`GET /web/game/stats/?games=${g.id} (sin lastUpdateId)`, () =>
       api.getGameStats(g.id, undefined));
@@ -261,7 +261,7 @@ async function athleteTest() {
 
 async function bracketsAndHistoryTest() {
   await header('6. BRACKETS Y HISTORIAL');
-  const brackets = await step('brackets Mundial', () => cosmos.getById('brackets', String(MUNDIAL_ID), String(MUNDIAL_ID)));
+  const brackets = await step('brackets Mundial', () => cosmos.getById('brackets', String(COMPETITION_ID), String(COMPETITION_ID)));
   check('brackets Mundial existe', brackets !== null);
   if (brackets?.brackets?.[0]?.stages) {
     const stages = brackets.brackets[0].stages;
@@ -271,12 +271,12 @@ async function bracketsAndHistoryTest() {
   }
 
   const history = await step('competition_history', () =>
-    cosmos.queryAll('competition_history', 'SELECT c.seasonNum FROM c WHERE c.competitionId = 5930 ORDER BY c.seasonNum ASC'));
+    cosmos.queryAll('competition_history', `SELECT c.seasonNum FROM c WHERE c.competitionId = ${COMPETITION_ID} ORDER BY c.seasonNum ASC`));
   check('history >= 20 ediciones', history.length >= 20, `got: ${history.length}`);
   info(`  Ediciones: ${history.map((h) => h.seasonNum).join(', ')}`);
 
   const hist2022 = await step('history 2022 detalle', () =>
-    cosmos.getById('competition_history', `${MUNDIAL_ID}-se16`, String(MUNDIAL_ID)));
+    cosmos.getById('competition_history', `${COMPETITION_ID}-se16`, String(COMPETITION_ID)));
   if (hist2022) {
     const participants = hist2022.group?.participants || [];
     check('Final 2022 = Argentina vs Francia',
@@ -288,9 +288,9 @@ async function bracketsAndHistoryTest() {
 
 async function newsTrendsTipsTest() {
   await header('7. NEWS, TRENDS, BETTING TIPS');
-  const news = await step('news Mundial', () =>
-    cosmos.queryAll('news', 'SELECT c.title, c.publishDate FROM c WHERE c.competitionId = 5930 ORDER BY c.publishDate DESC'));
-  check('>= 10 news Mundial', news.length >= 10, `got: ${news.length}`);
+  const news = await step('news', () =>
+    cosmos.queryAll('news', `SELECT c.title, c.publishDate FROM c WHERE c.competitionId = ${COMPETITION_ID} ORDER BY c.publishDate DESC`));
+  check('>= 10 news', news.length >= 10, `got: ${news.length}`);
   news.slice(0, 3).forEach((n) => info(`  [${n.publishDate}] ${n.title}`));
 
   const trendsTop = await step('top trends Mundial', () =>
@@ -311,7 +311,7 @@ async function newsTrendsTipsTest() {
 async function standingsTest() {
   await header('8. STANDINGS + TOURNAMENT STATS');
   const standings = await step('standings fase grupos', () =>
-    cosmos.getById('standings', `${MUNDIAL_ID}-s1-se25`, String(MUNDIAL_ID)));
+    cosmos.getById('standings', `${COMPETITION_ID}-s1-se25`, String(COMPETITION_ID)));
   check('standings existe', standings !== null);
   if (standings?.standings?.[0]?.rows) {
     const allRows = standings.standings.flatMap((s) => s.rows || []);
@@ -384,7 +384,7 @@ async function newServicesTest() {
 }
 
 async function main() {
-  console.log(`${C.bld}BotMundialista · Cosmos DB + 365scores · Test E2E Mundial 2026${C.r}`);
+  console.log(`${C.bld}ScoreHub · Test E2E${C.r}`);
   console.log(`${C.dim}Cosmos: ${process.env.COSMOS_ENDPOINT}${C.r}`);
 
   await cosmosHealth();
@@ -401,7 +401,7 @@ async function main() {
   console.log(`  ${C.g}Pasados: ${passed}${C.r}`);
   console.log(`  ${failed ? C.red : C.g}Fallados: ${failed}${C.r}`);
   if (failed === 0) {
-    console.log(`\n  ${C.g}${C.bld}✔ TODO OK — Cosmos DB funcional con Mundial 2026 ingestado${C.r}\n`);
+    console.log(`\n  ${C.g}${C.bld}✔ TODO OK — ScoreHub funcional con datos ingestados${C.r}\n`);
     process.exit(0);
   } else {
     console.log(`\n  ${C.red}${C.bld}✗ Hay ${failed} checks que fallaron${C.r}\n`);

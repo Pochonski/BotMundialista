@@ -41,10 +41,10 @@ Establecer la base del proyecto: scaffold, design system, layout shell, y endpoi
   - Health check endpoint
 - [x] `server/routes/football.js` — Router con todos los endpoints
 - [x] `server/controllers/footballController.js` — Controlador con:
-  - Conexión a Cosmos DB (reutiliza `../../database/cosmos.js`)
+  - Conexión a base de datos
   - Helper de CDN enrichment (usa `../../services/images.js`)
   - Fallback a 365scores live API cuando Cosmos está vacío
-- [x] `server/package.json` — Dependencias: express, @azure/cosmos, dotenv, cors, node-fetch
+- [x] `server/package.json` — Dependencias: express, dotenv, cors, node-fetch
 
 ### 1.5 Endpoints implementados (Fase 1)
 
@@ -93,7 +93,7 @@ Establecer la base del proyecto: scaffold, design system, layout shell, y endpoi
 
 1.4 Servidor Express
     → npm init en server/
-    → npm install express @azure/cosmos dotenv cors node-fetch
+    → npm install express dotenv cors node-fetch
     → index.js con CORS + static serve
     → routes/football.js con router
     → controllers/footballController.js con lógica Cosmos

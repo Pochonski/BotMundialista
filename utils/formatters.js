@@ -131,7 +131,7 @@ function formatTabla(standings, liga) {
 }
 
 /**
- * Formatea una tabla de grupo (Mundial 2026) en un bloque de código pre-formateado
+ * Formatea una tabla de grupo en un bloque de código pre-formateado
  * con columnas alineadas para mejor legibilidad en Telegram.
  *
  * Estructura de columnas: [#][EQUIPO][PTS][PJ][V-E-D][GOLES][DG]
@@ -203,7 +203,7 @@ function formatGroupTable(rows, grupo) {
   }).map((l, i) => `${i === 0 ? medal : '  '}${l}`);
 
   let msg = '';
-  if (grupo) msg += `📋 *GRUPO ${grupo.toUpperCase()} — MUNDIAL 2026*\n\n`;
+  if (grupo) msg += `📋 *GRUPO ${grupo.toUpperCase()}*\n\n`;
   msg += '```\n';
   msg += header + '\n';
   lines.forEach(l => { msg += l + '\n'; });

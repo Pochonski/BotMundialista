@@ -1,5 +1,7 @@
-// Handler de partidos y resultados - Mundial 2026
+// Handler de partidos y resultados
 const cache = require('../services/mundialCache');
+const { getCompetitionName } = require('../services/competitionName');
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 const mundialista365 = require('./mundialista365Handler');
 const { formatMatchLine, detectElimination } = require('../utils/formatters');
 
@@ -38,7 +40,8 @@ async function getPartidosHoy(parsed = {}) {
     const today = dateStr();
     const games = await cache.getWorldCupGames({ date: today });
     if (!games || games.length === 0) {
-      return buildNoMatchesMessage();
+      const compName = await getCompetitionName(COMPETITION_ID);
+      return buildNoMatchesMessage(compName);
     }
     const porGrupo = {};
     games.forEach((m) => {
@@ -47,7 +50,8 @@ async function getPartidosHoy(parsed = {}) {
       porGrupo[g].push(m);
     });
     const grupos = Object.keys(porGrupo).sort();
-    let msg = `⚽ *MUNDIAL 2026 — PARTIDOS DE HOY*\n\n`;
+    const compName = await getCompetitionName(COMPETITION_ID);
+    let msg = `⚽ *${compName} — PARTIDOS DE HOY*\n\n`;
     msg += `📅 *${new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Costa_Rica' })}*\n\n`;
     for (const grupo of grupos) {
       const partidos = porGrupo[grupo];
@@ -72,13 +76,14 @@ async function getPartidosHoy(parsed = {}) {
     return msg.trim();
   } catch (error) {
     console.error('Error getPartidosHoy:', error);
-    return buildNoMatchesMessage();
+    const compNameFb = await getCompetitionName(COMPETITION_ID);
+    return buildNoMatchesMessage(compNameFb);
   }
 }
 
-function buildNoMatchesMessage() {
-  return `⚽ *MUNDIAL 2026 — PARTIDOS DE HOY*\n\n` +
-    `🟢 No hay partidos del Mundial programados para hoy.\n\n` +
+function buildNoMatchesMessage(compName = 'TORNEO') {
+  return `⚽ *${compName} — PARTIDOS DE HOY*\n\n` +
+    `🟢 No hay partidos programados para hoy.\n\n` +
     `📋 *Otros comandos útiles:*\n` +
     `• "Tabla del grupo A" — Ver clasificación\n` +
     `• "Cómo quedó [equipo]" — Último resultado\n` +
@@ -131,9 +136,9 @@ async function getPartidosFecha(tipoFecha) {
   try {
     const games = await cache.getWorldCupGames({ date: fecha });
     if (!games || games.length === 0) {
-      return `📅 No encontré partidos del Mundial para ${fmtDate(fecha)}.`;
+      return `📅 No encontré partidos para ${fmtDate(fecha)}.`;
     }
-    let msg = `📅 *PARTIDOS DEL MUNDIAL - ${fmtDate(fecha)}*\n\n`;
+    let msg = `📅 *PARTIDOS - ${fmtDate(fecha)}*\n\n`;
     games.slice(0, 25).forEach((m) => {
       const hs = m.homeCompetitor?.score;
       const as = m.awayCompetitor?.score;
@@ -321,7 +326,7 @@ async function getResultadoVS(home, away) {
     if (!homeTeam) return `⚠️ No encontré al equipo "${typeof home === 'string' ? home : (home && home.nombre) || ''}"`;
     if (!awayTeam) return `⚠️ No encontré al equipo "${typeof away === 'string' ? away : (away && away.nombre) || ''}"`;
 
-    const matchupId = `${homeTeam.id}-${awayTeam.id}-${cache.MUNDIAL_ID}`;
+    const matchupId = `${homeTeam.id}-${awayTeam.id}-${cache.COMPETITION_ID}`;
     const h2h = await cache.getMatchH2H(null, matchupId).catch(() => null);
 
     if (h2h && h2h.h2hGames && h2h.h2hGames.length > 0) {

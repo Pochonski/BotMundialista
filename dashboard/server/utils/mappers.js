@@ -138,8 +138,8 @@ function buildMatchupId(game) {
   const homeId = game.homeCompetitor?.id || game.homeTeam?.id;
   const awayId = game.awayCompetitor?.id || game.awayTeam?.id;
   if (!homeId || !awayId) return '';
-  const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
-  return `${homeId}-${awayId}-${game.competitionId || MUNDIAL_ID}`;
+  const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
+  return `${homeId}-${awayId}-${game.competitionId || COMPETITION_ID}`;
 }
 
 function transformStandingRow(r, competitorId) {

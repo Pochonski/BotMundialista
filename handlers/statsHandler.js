@@ -1,5 +1,7 @@
-// Handler de estadísticas - Mundial 2026
+// Handler de estadísticas
 const cache = require('../services/mundialCache');
+const { getCompetitionName } = require('../services/competitionName');
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 const { getRecentForm } = require('../utils/teamContext');
 const { formatMatchLine } = require('../utils/formatters');
 
@@ -93,7 +95,8 @@ async function getGoleadores(limit = 10) {
     if (!topScorers.length) {
       return '⚠️ No hay datos de goleadores disponibles.';
     }
-    let msg = `⚽ *TOP GOLEADORES - MUNDIAL 2026*\n\n`;
+    const compName = await getCompetitionName(COMPETITION_ID);
+    let msg = `⚽ *TOP GOLEADORES - ${compName}*\n\n`;
     topScorers.slice(0, limit).forEach((row, idx) => {
       const rank = row.idx || (idx + 1);
       const name = row.name || row.player?.name || '?';

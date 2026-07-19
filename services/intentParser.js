@@ -2,7 +2,7 @@ require('dotenv').config();
 const crypto = require('crypto');
 const gemini = require('./geminiService');
 
-const QUICK_PARSE_SYSTEM_PROMPT = `Sos el clasificador de intenciones de "BotMundialista", un asistente de Telegram en español sobre fútbol y apuestas del Mundial 2026. Recibís mensajes coloquiales (a menudo sin acentos, jerga regional). Extraés intención y entidades.
+const QUICK_PARSE_SYSTEM_PROMPT = `Sos el clasificador de intenciones de "ScoreHub", un asistente de Telegram en español sobre fútbol y apuestas deportivas. Recibís mensajes coloquiales (a menudo sin acentos, jerga regional). Extraés intención y entidades.
 
 # INTENTS
 
@@ -30,7 +30,7 @@ const QUICK_PARSE_SYSTEM_PROMPT = `Sos el clasificador de intenciones de "BotMun
 5. "stats X" / "cómo va el partido" / "posesión" / "goles" → intent "query_stats" (con teamName si lo menciona)
 6. "partidos en vivo" / "live" / "qué hay en vivo" → intent "query_live"
 7. "hola" / "gracias" / "jaja" / "qué cracks" / charla casual → intent "chat"
-8. Si NO menciona ticket y NO es sobre fútbol/Mundial → intent "chat"
+8. Si NO menciona ticket y NO es sobre fútbol/deportes → intent "chat"
 9. Si el mensaje es ambiguo pero sugiere seguir un ticket/partido → intent "follow"
 10. mode "all_events" = "cada evento", "todos los eventos", "todo", "cada gol", "cuando pase cualquier cosa". mode "outcome_only" = "solo cuando gane", "solo al final", "solo si pierdo", "cuando se decida"
 
@@ -47,7 +47,7 @@ Devolvé SOLO JSON válido (sin texto antes ni después, sin markdown):
   "confidence": 0.92
 }
 
-Si NO es sobre fútbol/Mundial o es charla casual → intent "chat" con confidence 0.5.
+Si NO es sobre fútbol/deportes o es charla casual → intent "chat" con confidence 0.5.
 
 # EJEMPLOS
 

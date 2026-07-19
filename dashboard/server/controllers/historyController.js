@@ -1,53 +1,35 @@
-const path = require('path');
-const cosmos = require(path.join(__dirname, '..', '..', '..', 'database', 'cosmos'));
-const scores365 = require(path.join(__dirname, '..', '..', '..', 'services', 'scores365Service'));
+const { pool } = require('../../../database/connection');
 const { parseHistoryDoc } = require('../utils/mappers');
-const { getCompetitorMap } = require('../services/cacheService');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
-const COMPETITION_PK = String(MUNDIAL_ID);
-const HISTORY_CACHE_TTL_MS = 5 * 60 * 1000;
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 
-let _historyCache = { data: null, expiry: 0 };
+async function getCompetitorMap() {
+  const { rows } = await pool.query('SELECT id, name, data FROM competitors');
+  const map = {};
+  for (const r of rows) {
+    map[String(r.id)] = { name: r.name || r.data?.name, imageVersion: r.data?.imageVersion };
+  }
+  return map;
+}
+
+async function fetchHistoryRows() {
+  const { rows } = await pool.query('SELECT data FROM competition_history WHERE competition_id = $1', [COMPETITION_ID]);
+  const teamMap = await getCompetitorMap();
+  return rows.map(r => {
+    const doc = {
+      id: `${COMPETITION_ID}-se${r.data.seasonNum}`,
+      competitionId: COMPETITION_ID,
+      seasonNum: r.data.seasonNum,
+      ...r.data,
+    };
+    return parseHistoryDoc(doc, teamMap);
+  });
+}
 
 async function getHistory(req, res, next) {
   try {
-    if (_historyCache.data && Date.now() < _historyCache.expiry) {
-      return res.json(_historyCache.data);
-    }
-
-    const qBase = { query: 'SELECT c.id, c.competitionId, c.seasonNum, c.title, c.secondaryTitle, c.entityId, c.hasTable, c.hasGroup, c.group, c._fetchedAt FROM c WHERE c.competitionId = @compId ORDER BY c.seasonNum DESC', parameters: [{ name: '@compId', value: COMPETITION_PK }] };
-    let docs = await cosmos.queryAll('competition_history', qBase);
-
-    if (docs.length < 20) {
-      try {
-        const apiData = await scores365.getCompetitionHistory(MUNDIAL_ID);
-        const apiRows = apiData?.table?.rows || [];
-        if (apiRows.length > 0) {
-          const upsertPromises = apiRows.map(r => {
-            const doc = {
-              id: `${MUNDIAL_ID}-se${r.seasonNum}`,
-              competitionId: MUNDIAL_ID,
-              seasonNum: r.seasonNum,
-              ...r,
-              _fetchedAt: new Date().toISOString(),
-            };
-            return cosmos.upsert('competition_history', doc).catch(() => {});
-          });
-          await Promise.all(upsertPromises);
-          docs = await cosmos.queryAll('competition_history', qBase);
-        }
-      } catch (e) {
-        req.log?.warn?.({ err: e.message }, 'Error en fallback 365scores para history');
-      }
-    }
-
-    const teamMap = await getCompetitorMap();
-    const result = docs.map(d => parseHistoryDoc(d, teamMap));
-
-    _historyCache = { data: result, expiry: Date.now() + HISTORY_CACHE_TTL_MS };
-
-    res.json(result);
+    const data = await fetchHistoryRows();
+    res.json(data);
   } catch (err) {
     next(err);
   }
@@ -55,34 +37,8 @@ async function getHistory(req, res, next) {
 
 async function getHistoryStats(req, res, next) {
   try {
-    const qBase = { query: 'SELECT c.id, c.competitionId, c.seasonNum, c.title, c.secondaryTitle, c.entityId, c.hasTable, c.hasGroup, c.group, c._fetchedAt FROM c WHERE c.competitionId = @compId ORDER BY c.seasonNum ASC', parameters: [{ name: '@compId', value: COMPETITION_PK }] };
-    let docs = await cosmos.queryAll('competition_history', qBase);
-
-    if (docs.length < 20) {
-      try {
-        const apiData = await scores365.getCompetitionHistory(MUNDIAL_ID);
-        const apiRows = apiData?.table?.rows || [];
-        if (apiRows.length > 0) {
-          const upsertPromises = apiRows.map(r => {
-            const doc = {
-              id: `${MUNDIAL_ID}-se${r.seasonNum}`,
-              competitionId: MUNDIAL_ID,
-              seasonNum: r.seasonNum,
-              ...r,
-              _fetchedAt: new Date().toISOString(),
-            };
-            return cosmos.upsert('competition_history', doc).catch(() => {});
-          });
-          await Promise.all(upsertPromises);
-          docs = await cosmos.queryAll('competition_history', qBase);
-        }
-      } catch (e) {
-        req.log?.warn?.({ err: e.message }, 'Error en fallback 365scores para history stats');
-      }
-    }
-
     const teamMap = await getCompetitorMap();
-    const parsed = docs.map(d => parseHistoryDoc(d, teamMap));
+    const parsed = await fetchHistoryRows();
 
     const titleMap = {};
     const finalMap = {};
@@ -148,31 +104,21 @@ async function getHistoryBySeason(req, res, next) {
     const seasonNum = parseInt(req.params.seasonNum, 10);
     if (isNaN(seasonNum)) return res.status(400).json({ error: 'seasonNum inválido' });
 
-    let doc = await cosmos.getById('competition_history', `${MUNDIAL_ID}-se${seasonNum}`, MUNDIAL_ID);
+    const { rows } = await pool.query(
+      'SELECT data FROM competition_history WHERE competition_id = $1 AND (data->>\'seasonNum\')::int = $2',
+      [COMPETITION_ID, seasonNum]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Edición no encontrada' });
 
-    if (!doc) {
-      try {
-        const apiData = await scores365.getCompetitionHistory(MUNDIAL_ID);
-        const row = apiData?.table?.rows?.find(r => r.seasonNum === seasonNum);
-        if (row) {
-          doc = {
-            id: `${MUNDIAL_ID}-se${row.seasonNum}`,
-            competitionId: MUNDIAL_ID,
-            seasonNum: row.seasonNum,
-            ...row,
-            _fetchedAt: new Date().toISOString(),
-          };
-          await cosmos.upsert('competition_history', doc).catch(() => {});
-        }
-      } catch (e) {
-        req.log?.warn?.({ err: e.message }, 'Error en fallback 365scores para history by season');
-      }
-    }
-
-    if (!doc) return res.status(404).json({ error: 'Edición no encontrada' });
-
+    const rawDoc = {
+      id: `${COMPETITION_ID}-se${rows[0].data.seasonNum}`,
+      competitionId: COMPETITION_ID,
+      seasonNum: rows[0].data.seasonNum,
+      ...rows[0].data,
+    };
     const teamMap = await getCompetitorMap();
-    res.json(parseHistoryDoc(doc, teamMap));
+    const doc = parseHistoryDoc(rawDoc, teamMap);
+    res.json(doc);
   } catch (err) {
     next(err);
   }
@@ -183,28 +129,20 @@ async function getHistoryMatchStats(req, res, next) {
     const seasonNum = parseInt(req.params.seasonNum, 10);
     if (isNaN(seasonNum)) return res.status(400).json({ error: 'seasonNum inválido' });
 
-    let cached = await cosmos.getById('history_match_stats', `stats-${MUNDIAL_ID}-se${seasonNum}`, seasonNum);
-    if (cached?.data) return res.json(cached.data);
+    const { rows } = await pool.query(
+      'SELECT data FROM competition_history WHERE competition_id = $1 AND (data->>\'seasonNum\')::int = $2',
+      [COMPETITION_ID, seasonNum]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Edición no encontrada' });
 
-    let doc = await cosmos.getById('competition_history', `${MUNDIAL_ID}-se${seasonNum}`, MUNDIAL_ID);
-    if (!doc) return res.status(404).json({ error: 'Edición no encontrada' });
-
-    const game = doc.group?.games?.[0];
+    const game = rows[0].data?.group?.games?.[0];
     const gameData = game?.game || game;
     const gameId = gameData?.id || game?.gameId;
     if (!gameId) return res.json(null);
 
-    const stats = await scores365.getGameStats(gameId);
-
-    await cosmos.upsert('history_match_stats', {
-      id: `stats-${MUNDIAL_ID}-se${seasonNum}`,
-      seasonNum,
-      competitionId: MUNDIAL_ID,
-      data: stats,
-      _fetchedAt: new Date().toISOString(),
-    }).catch(() => {});
-
-    res.json(stats);
+    const { rows: statsRows } = await pool.query('SELECT data FROM game_stats WHERE game_id = $1', [gameId]);
+    if (!statsRows.length) return res.json(null);
+    res.json(statsRows[0].data);
   } catch (err) {
     next(err);
   }
@@ -215,32 +153,20 @@ async function getHistoryMatchOverview(req, res, next) {
     const seasonNum = parseInt(req.params.seasonNum, 10);
     if (isNaN(seasonNum)) return res.status(400).json({ error: 'seasonNum inválido' });
 
-    let cached = await cosmos.getById('history_match_overviews', `overview-${MUNDIAL_ID}-se${seasonNum}`, seasonNum);
-    if (cached?.data) return res.json(cached.data);
+    const { rows } = await pool.query(
+      'SELECT data FROM competition_history WHERE competition_id = $1 AND (data->>\'seasonNum\')::int = $2',
+      [COMPETITION_ID, seasonNum]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Edición no encontrada' });
 
-    let doc = await cosmos.getById('competition_history', `${MUNDIAL_ID}-se${seasonNum}`, MUNDIAL_ID);
-    if (!doc) return res.status(404).json({ error: 'Edición no encontrada' });
-
-    const game = doc.group?.games?.[0];
+    const game = rows[0].data?.group?.games?.[0];
     const gameData = game?.game || game;
     const gameId = gameData?.id || game?.gameId;
     if (!gameId) return res.json(null);
 
-    const homeId = gameData?.homeCompetitor?.id;
-    const awayId = gameData?.awayCompetitor?.id;
-    const matchupId = (homeId && awayId) ? `${homeId}-${awayId}-${MUNDIAL_ID}` : undefined;
-
-    const overview = await scores365.getGameOverview(gameId, matchupId);
-
-    await cosmos.upsert('history_match_overviews', {
-      id: `overview-${MUNDIAL_ID}-se${seasonNum}`,
-      seasonNum,
-      competitionId: MUNDIAL_ID,
-      data: overview,
-      _fetchedAt: new Date().toISOString(),
-    }).catch(() => {});
-
-    res.json(overview);
+    const { rows: overviewRows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gameId]);
+    if (!overviewRows.length) return res.json(null);
+    res.json(overviewRows[0].data);
   } catch (err) {
     next(err);
   }
@@ -251,39 +177,17 @@ async function getHistoryDescription(req, res, next) {
     const seasonNum = parseInt(req.params.seasonNum, 10);
     if (isNaN(seasonNum)) return res.status(400).json({ error: 'seasonNum inválido' });
 
-    let cached = await cosmos.getById('history_descriptions', `desc-${MUNDIAL_ID}-se${seasonNum}`, seasonNum);
-    if (cached?.data) return res.json(cached.data);
+    const { rows } = await pool.query(
+      'SELECT data FROM competition_history WHERE competition_id = $1 AND (data->>\'seasonNum\')::int = $2',
+      [COMPETITION_ID, seasonNum]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Edición no encontrada' });
 
-    let doc = await cosmos.getById('competition_history', `${MUNDIAL_ID}-se${seasonNum}`, MUNDIAL_ID);
-    if (!doc) return res.status(404).json({ error: 'Edición no encontrada' });
-
-    let entityType, entityId;
-    if (doc.entityId) {
-      entityType = 2;
-      entityId = doc.entityId;
-    } else {
-      const game = doc.group?.games?.[0];
-      const gameData = game?.game || game;
-      entityType = 5;
-      entityId = gameData?.id || game?.gameId;
-    }
-
-    if (!entityId) return res.json(null);
-
-    const raw = await scores365.getEntityDescription(entityType, entityId);
-    const sections = raw?.sections || [];
+    const doc = rows[0].data;
+    const sections = doc?.sections || [];
     const descriptions = sections
       .filter(s => s.type === 'ENTITY_DESCRIPTION')
       .flatMap(s => s.competitorsSeasons?.map(cs => cs.html) || []);
-
-    await cosmos.upsert('history_descriptions', {
-      id: `desc-${MUNDIAL_ID}-se${seasonNum}`,
-      seasonNum,
-      competitionId: MUNDIAL_ID,
-      data: descriptions,
-      _fetchedAt: new Date().toISOString(),
-    }).catch(() => {});
-
     res.json(descriptions);
   } catch (err) {
     next(err);

@@ -1,12 +1,12 @@
-# BotMundialista 🤖⚽
+# ScoreHub 🤖⚽
 
-**Ecosistema completo: bot Telegram + Dashboard Web Premium para el Mundial 2026**
+**Bot Telegram + Dashboard Web + ETL multi-competencia sobre Supabase**
 
 ---
 
-## ¿Qué es BotMundialista?
+## ¿Qué es ScoreHub?
 
-Ecosistema inteligente de fútbol y apuestas que combina un **bot de Telegram** en producción con un **Dashboard Web** premium para el Mundial 2026. Diseñado para aficionados al fútbol hispanohablantes que quieren seguir el torneo con calidad broadcast.
+Ecosistema inteligente de fútbol y apuestas que combina un **bot de Telegram** en producción con un **Dashboard Web** premium. Soporta múltiples competiciones (Mundial, ligas, copas) mediante una arquitectura ETL que sincroniza datos de 365scores a Supabase PostgreSQL.
 
 ### Características Principales
 
@@ -48,7 +48,7 @@ Ecosistema inteligente de fútbol y apuestas que combina un **bot de Telegram** 
 Cuando envías tu primer mensaje, el bot te pide crear un alias personalizado:
 
 ```
-¡Hola! 👋 Soy BotMundialista, tu asistente de fútbol.
+¡Hola! 👋 Soy ScoreHub, tu asistente de fútbol.
 ¿Cómo quieres que te llame? Escribe tu alias:
 ```
 
@@ -170,24 +170,26 @@ El bot tiene personalidad propia y envía notificaciones entusiastas:
     │            │               │                   │
     ▼            ▼               ▼                   ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              scores365Service.js (gzip, retry, throttle)     │
-│              cosmosRefresh.js (cron 6h)                      │
-│              liveGamesPoller.js (cron 25s)                   │
+│                  Supabase PostgreSQL                          │
+│   competitions · games · standings · stats · history          │
+│   news · trends · odds · brackets · predictions              │
+│   competitors · athletes · venues · tickets · users          │
 └──────────────────────────┬──────────────────────────────────┘
-                           │
-              ┌────────────┴────────────┐
-              ▼                         ▼
-     ┌──────────────┐          ┌──────────────┐
-     │  Cosmos DB   │          │  365scores   │
-     │  (cache)     │          │  web API     │
-     └──────────────┘          └──────────────┘
-                           │
-                           ▼
-              ┌──────────────────────────┐
-              │   Dashboard Web (React)   │
-              │   Express API + Clean     │
-              │   Architecture            │
-              └──────────────────────────┘
+                           │ ▲
+              ┌────────────┴─┴────────────┐
+              ▼                           ▼
+     ┌──────────────────┐      ┌──────────────────┐
+     │  syncService.js   │      │  Dashboard Web   │
+     │  ETL cron (PM2)   │      │  Express API     │
+     │  15s · 1m · 10m   │      │  (reads from DB)  │
+     │  1h · 6h · 24h   │      └──────────────────┘
+     └───────┬───────────┘
+             │
+             ▼
+     ┌──────────────────┐
+     │  365scores API   │
+     │  web (público)   │
+     └──────────────────┘
 ```
 
 ---
@@ -195,31 +197,22 @@ El bot tiene personalidad propia y envía notificaciones entusiastas:
 ## Estructura de Archivos
 
 ```
-BotMundialista/
+ScoreHub/
 ├── telegramBot.js              # Bot principal Telegram (long-polling)
-├── bot.js                      # Bot legacy WhatsApp
+├── bot.js                      # Entry point PM2
+├── sync.js                     # ETL sync service (365scores → Supabase)
 ├── package.json
 ├── .env / .env.example
-├── .github/workflows/azure.yml  # CI/CD
 │
-├── dashboard/                  # Dashboard Web Premium
-│   ├── docs/                   # Documentación del dashboard
-│   ├── server/                 # Express API (30+ endpoints)
-│   ├── src/                    # React + Clean Architecture
-│   │   ├── domain/             # Entidades + interfaces repositorio
-│   │   ├── data/               # Implementaciones repositorio
-│   │   ├── presentation/       # Componentes, hooks, páginas
-│   │   └── infrastructure/    # HTTP, cache, DI, logging, seguridad
-│   ├── tests/                  # Vitest
-│   ├── index.html
-│   ├── package.json
-│   └── vite.config.ts
+├── dashboard/                  # Dashboard Web
+│   ├── server/                 # Express API (19 controllers)
+│   │   └── controllers/       # Info, matches, standings, stats, news...
+│   └── admin/                  # Panel admin (HTML plano)
 │
 ├── database/
 │   ├── connection.js           # Conexión Supabase PostgreSQL
-│   ├── cosmos.js               # Wrapper @azure/cosmos
-│   ├── cosmos-schema.json      # Schema 27 containers
-│   └── schema.sql              # Schema completo de BD
+│   └── migrations/             # Migraciones SQL
+│       └── 004_scores365_data.sql  # 19 tablas de datos 365scores
 ├── handlers/
 │   ├── messageHandler.js       # Router principal de mensajes
 │   ├── matchHandler.js         # Resultados y partidos
@@ -227,34 +220,30 @@ BotMundialista/
 │   ├── statsHandler.js         # Estadísticas
 │   ├── bettingHandler.js        # Análisis de apuestas
 │   ├── tableHandler.js         # Tablas de posiciones
+│   ├── mundialista365Handler.js # Tips, tendencias, cuotas, odds
+│   ├── mundialistaStatsHandler.js # Noticias, brackets, goleadores
 │   ├── followHandler.js        # /follow, /unfollow
-│   ├── conversationalHandler.js # NLU: "sigueme el 555"
 │   ├── queryParser.js          # NLP para detectar intents
-│   ├── betImageHandler.js      # Procesamiento de imágenes OCR
-│   └── summaryHandler.js       # Resúmenes inteligentes
+│   └── betImageHandler.js      # Procesamiento de imágenes OCR
 ├── services/
+│   ├── syncService.js          # ETL motor (12 funciones de sync)
 │   ├── scores365Service.js      # Cliente 365scores (gzip, retry)
-│   ├── cosmosRefresh.js         # Refresh periódico (6h cron)
 │   ├── liveGamesPoller.js       # Polling live (25s cron)
-│   ├── geminiService.js         # Wrapper Gemini 2.5 Flash
+│   ├── matchSearch.js          # Búsqueda de partidos en DB
+│   ├── mundialCache.js         # Cache con TTL sobre Supabase
+│   ├── teamAliases.js          # Loader dinámico de equipos (DB + hardcode)
+│   ├── competitionName.js      # Nombre/alias de competencia desde DB
+│   ├── geminiService.js         # Wrapper Gemini
 │   ├── betEvaluator.js          # Evalúa 9 tipos de apuesta
-│   ├── notifier.js              # EventEmitter
-│   ├── telegramNotifier.js      # Listener notificaciones
 │   ├── intentParser.js          # Regex + Gemini fallback
-│   ├── conversationContext.js    # Memoria por chat
-│   ├── footballApi.js           # Cliente API SportAPI7
-│   ├── betTrackingEngine.js     # Motor de monitoreo 60s
-│   ├── notificationService.js   # Notificaciones WhatsApp
-│   ├── marketNormalizer.js      # Normaliza mercados
-│   ├── betParserService.js      # Parser OCR → JSON
-│   ├── ocrService.js            # Wrapper Tesseract.js
-│   ├── countryFlagsService.js   # Banderas de países
-│   ├── imageStorageService.js   # Almacenamiento de imágenes
-│   └── cacheService.js          # Cache en memoria con TTL
+│   ├── images.js                # URLs de imágenes de atletas/equipos
+│   ├── formatters.js            # Formateadores de respuesta
+│   └── constants.js             # Constantes y mappings
 ├── utils/
-│   ├── constants.js            # Constantes y mappings
-│   └── formatters.js           # Formateadores de respuesta
-└── node_modules/
+│   ├── teamContext.js          # Flags, confederaciones
+│   └── formatters.js           # Formateadores tabla, match line
+└── scripts/
+    └── test-365-mundial.js     # Test E2E de datos ingestados
 ```
 
 ---
@@ -265,26 +254,20 @@ BotMundialista/
 | -------------------- | ----------------------------------- | -------------------------------------- |
 | **Bot Telegram**     | node-telegram-bot-api               | Bot en producción                      |
 | **Dashboard Front**  | React 19 + TypeScript + Vite 6     | UI del dashboard                       |
-| **Dashboard Back**   | Express.js + Clean Architecture     | API REST 30+ endpoints                 |
-| **Estilos**          | Tailwind CSS 4 + CSS Custom Props   | Diseño broadcast oscuro                |
-| **Base de Datos**    | Supabase (PostgreSQL)               | Persistencia de datos                  |
-| **Cache**            | Azure Cosmos DB (Free tier)         | Cache de 365scores, 27 containers      |
+| **Dashboard Back**   | Express.js                          | API REST 19 controllers                |
+| **Base de Datos**    | Supabase PostgreSQL                 | Persistencia principal                 |
+| **ETL**             | syncService.js + PM2                | Sincronización 365scores → Supabase    |
 | **API Fútbol**       | 365scores web API (pública)         | Datos en tiempo real                   |
-| **API Legacy**       | SportAPI7 (RapidAPI)               | Datos de partidos (WhatsApp legacy)    |
 | **NLU**              | Gemini 2.5 Flash                   | Parseo de lenguaje natural             |
 | **OCR**              | Tesseract.js                       | Reconocimiento de texto en imágenes   |
-| **Testing**          | Vitest + jsdom + Testing Library   | Tests del dashboard                   |
-| **Scheduling**       | node-cron                          | Tareas programadas                    |
+| **Scheduling**       | node-cron + PM2 + systemd          | Tareas programadas + auto-arranque    |
 
 ---
 
 ## Requisitos Previos
 
 - **Node.js** 18+ instalado
-- **WhatsApp** activo para escanear QR (solo legacy)
 - **Supabase** cuenta (o PostgreSQL local)
-- **Azure Cosmos DB** Free tier (o emulador local)
-- **RapidAPI** key para SportAPI7
 - **npm/pnpm** como gestor de paquetes
 
 ---
@@ -294,8 +277,8 @@ BotMundialista/
 1. **Clonar el repositorio**
 
 ```bash
-git clone <repo-url>
-cd BotMundialista
+git clone https://github.com/Pochonski/ScoreHub.git
+cd ScoreHub
 ```
 
 2. **Instalar dependencias del bot**
@@ -344,23 +327,25 @@ node admin/server.js
 ## Variables de Entorno
 
 ```env
-# WhatsApp Session
-WA_SESSION_DIR=.wwebjs_auth
-
 # Base de Datos (Supabase)
-DB_HOST=db.your-project.supabase.co
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=your-password
-DB_NAME=postgres
-DB_SSL=true
+SUPABASE_DB_URL=postgresql://postgres:password@db.project.supabase.co:5432/postgres
 
-# API Fútbol (RapidAPI)
-RAPIDAPI_KEY=your-api-key
-RAPIDAPI_HOST=sportapi7.p.rapidapi.com
+# 365scores
+PRIMARY_COMPETITION_ID=5930
+PRIMARY_SEASON=25
+SCORES365_APP_TYPE=5
+SCORES365_POLL_MS=25000
+SCORES365_MIN_INTERVAL_MS=120
 
-# Servidor Admin
+# Gemini AI
+GEMINI_API_KEY=your-gemini-api-key
+
+# Telegram
+TELEGRAM_TOKEN=your-bot-token
+
+# Dashboard
 ADMIN_PORT=3001
+DASHBOARD_PORT=3000
 ```
 
 ---

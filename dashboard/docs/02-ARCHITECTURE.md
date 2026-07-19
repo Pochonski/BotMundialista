@@ -44,7 +44,7 @@ dashboard/
 │   └── 06-PHASE-04-polish-premium.md
 │
 ├── server/                          # Express API (dominio separado)
-│   ├── package.json                 # Dependencias: express, @azure/cosmos, dotenv
+│   ├── package.json                 # Dependencias: express, dotenv
 │   ├── index.js                     # Entry point: Express app, CORS, static serve
 │   ├── routes/
 │   │   └── football.js              # Router con todos los endpoints /api/football/*

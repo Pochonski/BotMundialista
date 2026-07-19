@@ -1,21 +1,18 @@
-const path = require('path');
-const cosmos = require(path.join(__dirname, '..', '..', '..', 'database', 'cosmos'));
-const images = require(path.join(__dirname, '..', '..', '..', 'services', 'images'));
+const { pool } = require('../../../database/connection');
+const images = require('../../../services/images');
 
-const MUNDIAL_ID = parseInt(process.env.SCORES365_COMPETITION_MUNDIAL || '5930', 10);
-const COMPETITION_PK = String(MUNDIAL_ID);
-const CURRENT_SEASON = parseInt(process.env.SCORES365_SEASON || '25', 10);
+const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
+const CURRENT_SEASON = parseInt(process.env.PRIMARY_SEASON || '25', 10);
 
 async function getCountries(req, res, next) {
   try {
-    const countries = await cosmos.queryAll('catalog', {
-      query: "SELECT * FROM c WHERE c.entityType = 'countries' ORDER BY c.name ASC",
-    });
-    res.json(countries.map(c => ({
-      id: c.id,
-      name: c.name,
-      flagUrl: c.id ? images.getCountryFlagUrl(Number(c.id)) : null,
-    })));
+    const { rows } = await pool.query('SELECT id, name FROM countries ORDER BY name');
+    const countries = rows.map(r => ({
+      id: r.id,
+      name: r.name || '',
+      flagUrl: images.getCountryFlagUrl(r.id),
+    }));
+    res.json(countries);
   } catch (err) {
     next(err);
   }
@@ -23,19 +20,25 @@ async function getCountries(req, res, next) {
 
 async function getTournamentInfo(req, res, next) {
   try {
-    const competitions = await cosmos.queryAll('catalog', {
-      query: 'SELECT * FROM c WHERE c.entityType = @etype AND c.id = @compId',
-      parameters: [{ name: '@etype', value: 'competitions' }, { name: '@compId', value: COMPETITION_PK }],
-    });
-    if (competitions.length === 0) {
+    const { rows } = await pool.query('SELECT data FROM competitions WHERE id = $1', [COMPETITION_ID]);
+    if (!rows.length) {
       return res.json({
-        id: MUNDIAL_ID,
-        name: 'Mundial 2026',
+        id: COMPETITION_ID,
+        name: 'Torneo',
         seasonNum: CURRENT_SEASON,
         format: '48 equipos, 12 grupos, fase eliminatoria',
       });
     }
-    const c = competitions[0];
+    const clist = rows[0].data?.competitions;
+    const c = Array.isArray(clist) ? clist[0] : rows[0].data?.competition;
+    if (!c) {
+      return res.json({
+        id: COMPETITION_ID,
+        name: 'Torneo',
+        seasonNum: CURRENT_SEASON,
+        format: '48 equipos, 12 grupos, fase eliminatoria',
+      });
+    }
     res.json({
       id: c.id,
       name: c.name,

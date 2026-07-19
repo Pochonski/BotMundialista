@@ -96,8 +96,8 @@ Scripts a eliminar de `package.json`:
 
 **Agregar:**
 - `DB_HOST` = `db.jcfulxsqayscvqgxemhv.supabase.co`
-- `DB_PASSWORD` = `<REDACTED>`
-- `TELEGRAM_BOT_TOKEN` = `<REDACTED>`
+- `DB_PASSWORD` = `<REDACTED_PASSWORD>`
+- `TELEGRAM_BOT_TOKEN` = `<REDACTED_BOT_TOKEN>`
 - `GEMINI_API_KEY` = `<REDACTED>`
 
 ### 3.4 Health check
@@ -221,7 +221,7 @@ cd dashboard && npm test           # 94 tests ✅
 DB_HOST=db.jcfulxsqayscvqgxemhv.supabase.co    ← con prefijo db.
 DB_PORT=5432
 DB_USER=postgres
-DB_PASSWORD=<REDACTED>
+DB_PASSWORD=<REDACTED_PASSWORD>
 DB_NAME=postgres
 DB_SSL=true
 ```
@@ -324,12 +324,12 @@ Configurar en Vercel Dashboard → Project Settings → Environment Variables:
 | `SCORES365_MIN_INTERVAL_MS` | `120` |
 | `PRIMARY_SEASON` | `25` |
 | `SCORES365_POLL_MS` | `25000` |
-| `TELEGRAM_BOT_TOKEN` | `<REDACTED>` |
+| `TELEGRAM_BOT_TOKEN` | `<REDACTED_BOT_TOKEN>` |
 | `GEMINI_API_KEY` | `<REDACTED>` |
 | `DB_HOST` | `db.jcfulxsqayscvqgxemhv.supabase.co` |
 | `DB_PORT` | `5432` |
 | `DB_USER` | `postgres` |
-| `DB_PASSWORD` | `<REDACTED>` |
+| `DB_PASSWORD` | `<REDACTED_PASSWORD>` |
 | `DB_NAME` | `postgres` |
 | `DB_SSL` | `true` |
 | `CORS_ORIGINS` | `https://mundialista.vercel.app` |
@@ -356,8 +356,8 @@ npx vercel --prod
 | Servicio | Dato |
 |----------|------|
 | **Supabase host** | `db.jcfulxsqayscvqgxemhv.supabase.co` |
-| **Supabase password** | `<REDACTED>` |
-| **Telegram bot token** | `<REDACTED>` |
+| **Supabase password** | `<REDACTED_PASSWORD>` |
+| **Telegram bot token** | `<REDACTED_BOT_TOKEN>` |
 | **Telegram bot name** | `SabelotodoFutbolBot` |
 | **Gemini API key** | `<REDACTED>` |
 | **365scores comp ID** | `5930` (Mundial 2026) |

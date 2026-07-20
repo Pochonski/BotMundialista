@@ -8,7 +8,7 @@ export function useGames(params?: { statusGroup?: string; stage?: string; teamId
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetch = useCallback(
+    const fetch = useCallback(
     async (signal?: AbortSignal) => {
       try {
         setLoading(true)
@@ -22,8 +22,10 @@ export function useGames(params?: { statusGroup?: string; stage?: string; teamId
       } catch (e) {
         if (signal?.aborted) return
         const msg = e instanceof Error ? e.message : 'Error al cargar partidos'
+        const stack = e instanceof Error ? e.stack : undefined
+        const appCode = (e as { code?: string })?.code
         setError(msg)
-        logger.error('Error al cargar partidos', { error: msg, params }, 'useGames')
+        logger.error('Error al cargar partidos', { error: msg, code: appCode, stack, params }, 'useGames')
       } finally {
         if (!signal?.aborted) setLoading(false)
       }
@@ -89,7 +91,9 @@ export function useFeaturedGame() {
     } catch (e) {
       if (signal?.aborted) return
       const msg = e instanceof Error ? e.message : 'Error al cargar partido destacado'
-      logger.error('Error al cargar partido destacado', { error: msg }, 'useFeaturedGame')
+      const stack = e instanceof Error ? e.stack : undefined
+      const appCode = (e as { code?: string })?.code
+      logger.error('Error al cargar partido destacado', { error: msg, code: appCode, stack }, 'useFeaturedGame')
       setGame(null)
     } finally {
       if (!signal?.aborted) setLoading(false)

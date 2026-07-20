@@ -15,7 +15,7 @@ export const GameSchema = z.object({
   awayTeam: TeamSchema,
   statusGroup: GameStatusGroupSchema,
   startTime: z.string().optional(),
-  minute: z.number().optional(),
+  minute: z.number().nullable().optional(),
   stage: z.string().optional(),
   statusText: z.string().optional(),
   groupName: z.string().optional(),

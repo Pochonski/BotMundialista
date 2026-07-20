@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { id: 'matches', label: 'Partidos', route: '/' },
   { id: 'standings', label: 'Tabla', route: '/competicion' },
   { id: 'stats', label: 'Estadísticas', route: '/analisis' },
-  { id: 'news', label: 'Noticias', route: '/analisis' },
+  { id: 'news', label: 'Noticias', route: '/noticias' },
 ] as const
 
 export function Navbar() {
@@ -29,8 +29,8 @@ export function Navbar() {
     <header className="bg-bg-base/80 border-border-card fixed top-0 right-0 left-0 z-50 border-b backdrop-blur-lg">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
         <button onClick={() => navigate('/')} className="focus-visible flex shrink-0 items-center gap-2">
-          <span className="text-accent-gold font-display text-2xl font-bold tracking-wide">MUNDIALISTA</span>
-          <span className="text-text-muted font-body hidden text-xs font-light sm:inline">2026</span>
+          <span className="text-accent-gold font-display text-2xl font-bold tracking-wide">SCOREHUB</span>
+          <span className="text-text-muted font-body hidden text-xs font-light sm:inline">Mundial 2026</span>
         </button>
 
         <nav

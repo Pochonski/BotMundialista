@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { DiContainer } from '@/infrastructure/di/DiContainer'
 import ErrorHandler from '@/infrastructure/errors/ErrorHandler'
 import { AppError, ErrorCode } from '@/infrastructure/errors/AppError'
-import { DateUtils, ArrayUtils, StringUtils, AsyncUtils } from '@/shared/utils'
+import { DateUtils, ArrayUtils, StringUtils } from '@/shared/utils'
 
 describe('DateUtils', () => {
   it('formatea fechas correctamente', () => {

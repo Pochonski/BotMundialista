@@ -1,6 +1,6 @@
 import { apiClient } from '@/data/datasources/ApiClient'
 import { ENDPOINTS } from '@/infrastructure/config'
-import { mapNews, mapNewsList } from '@/data/mappers/NewsMapper'
+import { mapNewsList } from '@/data/mappers/NewsMapper'
 import type { NewsRepository } from '@/domain/repositories/NewsRepository'
 import type { News } from '@/domain/entities/News'
 

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import type { News } from '@/domain/entities/News'
 import { NewsCard } from './NewsCard'
 

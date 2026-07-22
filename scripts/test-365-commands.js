@@ -30,8 +30,7 @@ console.log('\n-- mundialistaStatsHandler --');
 for (const fn of requiredStatsHandler) check(`exports.${fn}`, typeof mundialistaStats[fn] === 'function');
 check('COMPETITION_ID === 5930', mundialistaStats.COMPETITION_ID === 5930);
 
-// Validar regex de /tip parsing (sin tocar API ni Cosmos)
-const { execSync } = require('child_process');
+// Validar regex de /tip parsing (sin tocar API)
 const sample = '/tip brasil vs argentina';
 const m = sample.replace(/^\/tip(?:@\w+)?\s+/i, '').trim().match(/^(.+?)\s+(?:vs\.?|y|contra|c\/)\s+(.+)$/i);
 check('regex /tip "vs" parsea', !!m && m[1] === 'brasil' && m[2] === 'argentina');

@@ -43,7 +43,7 @@ function buildTeamTimeline(transfers: AthleteTransfer[]) {
   return stints
 }
 
-export function PlayerProfile({ athlete, career, trophies, transfers }: PlayerProfileProps) {
+export function PlayerProfile({ athlete, career: _career, trophies, transfers }: PlayerProfileProps) {
   const teamStints = buildTeamTimeline(transfers)
 
   return (

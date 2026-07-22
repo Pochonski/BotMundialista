@@ -8,6 +8,15 @@ Funciona en **Telegram** (producción) y **WhatsApp** (legacy, vía `whatsapp-we
 > **DB:** Supabase PostgreSQL (apuestas, usuarios)
 > **Cache de fútbol:** 365scores (webws.365scores.com)
 
+> ⚠️ **Nota sobre arquitectura:** este doc aún menciona en algunas secciones
+> la arquitectura legacy con **Azure Cosmos DB** y archivos como
+> `services/footballApi.js`, `services/cosmosRefresh.js`,
+> `scripts/cosmos-bootstrap.js` y `database/cosmos-schema.json` — **todos
+> eliminados** tras la migración a Supabase + 365scores directo. La fuente
+> de verdad sobre la arquitectura actual es
+> [`migration-supabase-vercel.md`](./migration-supabase-vercel.md) y
+> [`deploy-vercel.md`](./deploy-vercel.md).
+
 ---
 
 ## Tabla de contenidos

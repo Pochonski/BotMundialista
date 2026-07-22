@@ -8,7 +8,10 @@ export function useGames(params?: { statusGroup?: string; stage?: string; teamId
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-    const fetch = useCallback(
+  // Deps granulares (statusGroup/stage/teamId) en lugar de `params` completo
+  // para evitar re-fetch loops si el caller pasa un objeto inline cada render.
+  /* eslint-disable react-hooks/exhaustive-deps */
+  const fetch = useCallback(
     async (signal?: AbortSignal) => {
       try {
         setLoading(true)
@@ -32,6 +35,7 @@ export function useGames(params?: { statusGroup?: string; stage?: string; teamId
     },
     [params?.statusGroup, params?.stage, params?.teamId]
   )
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -93,7 +97,11 @@ export function useFeaturedGame() {
       const msg = e instanceof Error ? e.message : 'Error al cargar partido destacado'
       const stack = e instanceof Error ? e.stack : undefined
       const appCode = (e as { code?: string })?.code
-      logger.error('Error al cargar partido destacado', { error: msg, code: appCode, stack }, 'useFeaturedGame')
+      logger.error(
+        'Error al cargar partido destacado',
+        { error: msg, code: appCode, stack },
+        'useFeaturedGame'
+      )
       setGame(null)
     } finally {
       if (!signal?.aborted) setLoading(false)

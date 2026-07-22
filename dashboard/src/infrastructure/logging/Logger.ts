@@ -1,13 +1,5 @@
 type LogLevel = 'info' | 'warn' | 'error' | 'debug'
 
-interface LogEntry {
-  level: LogLevel
-  message: string
-  data?: Record<string, unknown>
-  timestamp: number
-  source?: string
-}
-
 class Logger {
   private static instance: Logger
   private enabled = true
@@ -24,16 +16,9 @@ class Logger {
   private log(level: LogLevel, message: string, data?: Record<string, unknown>, source?: string) {
     if (!this.enabled) return
 
-    const entry: LogEntry = {
-      level,
-      message,
-      data,
-      timestamp: Date.now(),
-      source,
-    }
-
     const prefix = source ? `[${source}]` : ''
 
+    /* eslint-disable no-console -- esta clase ES el wrapper sobre console */
     switch (level) {
       case 'error':
         console.error(`${prefix} [ERROR] ${message}`, data || '')
@@ -47,6 +32,7 @@ class Logger {
       default:
         console.log(`${prefix} [INFO] ${message}`, data || '')
     }
+    /* eslint-enable no-console */
   }
 
   info(message: string, data?: Record<string, unknown>, source?: string) {

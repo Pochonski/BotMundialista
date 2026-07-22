@@ -58,3 +58,6 @@ supabase/.temp/
 *.tsbuildinfo
 dashboard/tsconfig.app.tsbuildinfo
 dashboard/tsconfig.tsbuildinfo
+
+# ZCode CLI metadata
+.zcode/

@@ -3,13 +3,7 @@ import { NewsFeed } from '@/presentation/components/news/NewsFeed'
 import { ErrorState } from '@/presentation/components/ui/ErrorState'
 
 export function NewsPage() {
-  const {
-    news,
-    loading,
-    loadMore,
-    hasMore,
-    error,
-  } = useNews(12)
+  const { news, loading, loadMore, hasMore, error } = useNews(12)
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-8">

@@ -75,7 +75,7 @@ export class DateUtils {
 }
 
 export class ArrayUtils {
-  static groupBy<T, K extends keyof any>(array: T[], key: (item: T) => K): Map<K, T[]> {
+  static groupBy<T, K extends PropertyKey>(array: T[], key: (item: T) => K): Map<K, T[]> {
     const map = new Map<K, T[]>()
     for (const item of array) {
       const group = key(item)
@@ -143,6 +143,7 @@ export class AsyncUtils {
     ])
   }
 
+  /* eslint-disable @typescript-eslint/no-explicit-any -- utilidades genéricas necesitan any para preservar la firma */
   static debounce<T extends (...args: any[]) => any>(fn: T, wait: number): (...args: Parameters<T>) => void {
     let timeoutId: NodeJS.Timeout
     return (...args: Parameters<T>) => {
@@ -163,4 +164,5 @@ export class AsyncUtils {
       return result
     }) as T
   }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 }

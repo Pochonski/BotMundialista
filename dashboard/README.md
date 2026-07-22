@@ -1,4 +1,4 @@
-# Mundialista Dashboard
+# ScoreHub Dashboard
 
 Dashboard web premium para la Copa Mundial FIFA 2026.
 
@@ -9,8 +9,8 @@ Dashboard web premium para la Copa Mundial FIFA 2026.
 - Tailwind CSS 4 + React Router 7
 - Zod 4 (runtime validation)
 - Express 4 + Pino (backend logging)
-- Azure Cosmos DB (datos)
-- PM2 (production process manager)
+- Supabase PostgreSQL (datos, vía `pg.Pool` sin ORM)
+- Vercel (deploy del frontend + serverless API)
 
 ## Features
 
@@ -54,10 +54,10 @@ Copia `.env.example` a `.env` y configura:
 |---|---|---|
 | `VITE_API_BASE_URL` | `/api/football` | URL base del backend |
 | `DASHBOARD_PORT` | `3002` | Puerto del servidor backend |
-| `CORS_ORIGINS` | `http://localhost:5173,https://dashboard.mundialista.com` | Orígenes permitidos (CSV) |
-| `SCORES365_COMPETITION_MUNDIAL` | `5930` | ID del mundial en 365scores |
-| `SCORES365_SEASON` | `25` | Número de temporada |
+| `CORS_ORIGINS` | `http://localhost:5173,https://scorehub-rust.vercel.app` | Orígenes permitidos (CSV) |
 | `LOG_LEVEL` | `info` | Nivel de log (info, warn, error, debug) |
+
+> Nota: el servidor (`dashboard/server`) lee estas variables del `.env` de la **raíz del repo**, no de `dashboard/.env`. La competencia y temporada se controlan con `PRIMARY_COMPETITION_ID` y `PRIMARY_SEASON` (ver `.env.example` raíz).
 
 ## Desarrollo
 
@@ -73,16 +73,15 @@ Abre http://localhost:5173.
 
 ## Producción
 
+El dashboard se deploya en **Vercel** (ver `vercel.json` y [docs/deploy-vercel.md](../docs/deploy-vercel.md)):
+
+- El build de Vite produce `dashboard/dist/` (SPA + PWA).
+- `api/index.js` es una serverless function que monta `dashboard/server/index.js` (Express).
+- `/api/(.*)` se reescribe a la function; el resto sirve el SPA.
+
 ```bash
-npm run build
-
-# Con PM2 (recomendado)
-pm2 start ../ecosystem.config.js
-pm2 save
-
-# Manual
-cd server && npm start
-# Sirve SPA + API en :3002
+npm run build        # genera dist/
+cd server && npm start   # o dejar que Vercel lo sirva como serverless
 ```
 
 ## Tests
@@ -114,7 +113,7 @@ cd server && npm test
 - **CORS whitelist**: solo orígenes configurados via `CORS_ORIGINS`
 - **Helmet**: headers HTTP de seguridad (CSP, HSTS, X-Frame-Options, etc.)
 - **Rate limiting**: 100 req/min por IP en todas las rutas `/api/`
-- **Queries parametrizadas**: todas las consultas Cosmos DB usan `@params` vinculados (sin interpolación de strings)
+- **Queries parametrizadas**: todas las consultas PostgreSQL usan placeholders `$1, $2…` (sin interpolación de strings)
 - **Graceful shutdown**: SIGTERM/SIGINT cierran conexiones limpiamente
 
 ## Bundle

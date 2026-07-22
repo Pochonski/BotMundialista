@@ -1,458 +1,127 @@
-# ScoreHub 🤖⚽
+# ScoreHub
 
-**Bot Telegram + Dashboard Web + ETL multi-competencia sobre Supabase**
+Asistente de fútbol y apuestas centrado en el **Mundial FIFA 2026**, con tres interfaces integradas sobre una base de datos común (Supabase PostgreSQL).
 
----
-
-## ¿Qué es ScoreHub?
-
-Ecosistema inteligente de fútbol y apuestas que combina un **bot de Telegram** en producción con un **Dashboard Web** premium. Soporta múltiples competiciones (Mundial, ligas, copas) mediante una arquitectura ETL que sincroniza datos de 365scores a Supabase PostgreSQL.
-
-### Características Principales
-
-**🤖 Bot de Telegram (producción)**
-
-- Resultados en vivo, estadísticas, tablas de posiciones
-- Seguimiento de apuestas con notificaciones en tiempo real
-- Lenguaje natural en español (Gemini) + comandos `/`
-- Historial cara a cara, goleadores, rachas, tendencias
-
-**🌐 Dashboard Web Premium**
-
-- Centro de comando visual para el Mundial 2026
-- Partidos en vivo con marcador animado estilo broadcast
-- Tabla de posiciones, estadísticas, goleadores, noticias
-- Historial de todas las ediciones del Mundial (1930-2022)
-- Tendencias de apuestas, tips, predicciones
-- Perfiles de jugadores y equipos con datos de carrera
-
-**🎰 Seguimiento de Apuestas**
-
-- Envía una captura de pantalla de tu apuesta y el bot la procesa automáticamente
-- Utiliza OCR para extraer datos de imágenes de Bet365, Betway, y otras casas de apuestas
-- Normaliza mercados: Over/Under, Corners, Tarjetas, Resultado Final, Ambos Marcan, Handicaps
-- Monitoreo en tiempo real cada 60 segundos
-- Notificaciones automáticas cuando se cumplen o fallan tus selecciones
-
-**🇺🇸 Banderas de Países**
-
-- El bot muestra automáticamente la bandera del país junto al nombre de cada equipo
-- Notificaciones más visuales y fáciles de identificar
+[Bot de Telegram](https://t.me/botmundialistabot) · [Dashboard Web](https://scorehub-rust.vercel.app) · [Documentación](./docs)
 
 ---
 
-## ¿Cómo Funciona?
+## Qué hace
 
-### 1. Registro Rápido
+- **Bot de Telegram** (`@botmundialistabot`): la interfaz principal. Entiende español natural (vía Gemini) y ~50 comandos slash. Da partidos en vivo, fixture, tablas/grupos/llaves, info de equipos, H2H, alineaciones, previas, estadísticas, noticias, predicciones, cuotas, goleadores e historial de mundiales (1930–2022).
+- **Dashboard web premium "ScoreHub"** (React 19 + Vite): centro de comando visual con partidos en vivo, marcadores animados, tablas, bracket, estadísticas, noticias y perfil de jugadores.
+- **Panel admin**: UI interna para ver métricas de uso (usuarios, consultas, equipos seguidos).
+- **Seguimiento de apuestas por captura**: el usuario manda una foto de su cupón de Bet365/Betway, Tesseract.js hace OCR, se normaliza a 9+ tipos de mercado, se empareja con un partido en vivo y cada 60s se notifica a Telegram cuando se gana/pierde cada selección.
 
-Cuando envías tu primer mensaje, el bot te pide crear un alias personalizado:
-
-```
-¡Hola! 👋 Soy ScoreHub, tu asistente de fútbol.
-¿Cómo quieres que te llame? Escribe tu alias:
-```
-
-### 2. Consulta Resultados
-
-Pregunta por el resultado de cualquier partido:
+## Arquitectura
 
 ```
-📩 "¿Cómo quedó Brasil?"
-📩 "México vs Argentina"
+┌─────────────────┐   ┌──────────────────┐   ┌─────────────────┐
+│  Telegram Bot   │   │  Dashboard (Web) │   │   Admin Panel   │
+│ telegramBot.js  │   │ React 19 + Vite  │   │  admin/server   │
+└────────┬────────┘   └────────┬─────────┘   └────────┬────────┘
+         │                      │                      │
+         └──────┬───────────────┴──────────────────────┘
+                │
+        ┌───────▼────────┐     ┌──────────────────────┐
+        │  sync.js (cron)│────▶│  365scores Web API   │
+        │  18 jobs ETL   │     │  webws.365scores.com │
+        └───────┬────────┘     └──────────────────────┘
+                │ upsert
+        ┌───────▼────────┐
+        │  Supabase PG   │  ◀── lectura: dashboard API + bot
+        │  19 tablas JSON│
+        └────────────────┘
 ```
 
-### 3. Analiza Partidos
+- **NLU**: Gemini 2.5 Flash parsea español natural → intent.
+- **OCR**: Tesseract.js extrae texto de cupones de apuestas.
+- **Backend API**: Express + Helmet + CORS + rate-limit + Pino.
+- **Frontend**: React 19 + TypeScript + Tailwind 4 + Zod 4 (Clean Architecture).
+- **DB**: Supabase PostgreSQL vía `pg.Pool` (sin ORM), 19 tablas cache JSONB.
+- **Fuente datos**: API web de 365scores (`webws.365scores.com`).
+- **Scheduling**: `node-cron` con 18 jobs en capas (15s, 1m, 2m, 5m, 10m, 6h, 24h).
 
-Obtén análisis detallados de enfrentamientos:
+## Stack
 
-```
-📩 "Analiza Brasil vs Francia"
-📩 "Estadísticas de España"
-```
+- **Runtime**: Node.js 18+ (CommonJS en raíz, ESM en dashboard).
+- **Bot**: `node-telegram-bot-api`, WhatsApp legacy (inactivo por defecto).
+- **Frontend**: React 19, React Router 7, Vite 6, TypeScript, Tailwind 4, Zod 4.
+- **DB**: Supabase PostgreSQL, `pg`, sin ORM.
+- **Logs**: `pino` + `pino-http` + `pino-pretty`.
+- **Seguridad**: `helmet`, `express-rate-limit`, CORS allowlist.
+- **OCR**: `tesseract.js`.
 
-### 4. Sigue Equipos
-
-Recibe actualizaciones de tus equipos favoritos:
-
-```
-📩 "Seguir Brasil"
-📩 "Mis equipos"
-```
-
-### 5. Apuestas con Imágenes 📸
-
-Esta es la función más poderosa. Envía una captura de pantalla de tu apuesta y el bot:
-
-1. **Analiza la imagen** usando OCR (reconocimiento óptico de caracteres)
-2. **Extrae los datos** del partido y las selecciones
-3. **Busca el partido** en la API de fútbol para verificar
-4. **Guarda la apuesta** en la base de datos
-5. **Monitorea en tiempo real** cada 60 segundos
-6. **Notifica** cuando se cumplen o fallan las selecciones
-
----
-
-## Tipos de Mercados Soportados
-
-El normalizador reconoce automáticamente estos tipos de apuestas:
-
-| Tipo                | Ejemplos                                           |
-| ------------------- | -------------------------------------------------- |
-| **Goles**           | Over 2.5, Under 3, Más de 2, Menos de 3.5          |
-| **Corners**         | Over 5 corners, Under 10 corners, Más de 7 córners |
-| **Tarjetas**        | Over 3.5 tarjetas, Under 5 cards                   |
-| **Ambos Marcan**    | Both Teams To Score (BTTS), Ambos marcan           |
-| **Resultado Final** | Gana Brasil, Local, Visitante, Empate              |
-| **Handicaps**       | Handicap -1, Handicap +2                           |
-| **Tiros**           | Shots on target Over/Under                         |
-| **Posesión**        | Over 55% posesión                                  |
-
----
-
-## Notificaciones Personalizadas
-
-El bot tiene personalidad propia y envía notificaciones entusiastas:
-
-**🎉 ¡Selección Cumplida!**
+## Estructura del repo
 
 ```
-📐 ¡¡¡ Increíble! 🔥 !!!
-
-📋 Tu selección: Over 5 corners
-📏 Línea: 5
-
-✅ ¡CUMPLIDA!
+.
+├── telegramBot.js          # Bot de Telegram (entrada principal)
+├── bot.js                  # Bot de WhatsApp (legacy, inactivo)
+├── sync.js                 # Servicio ETL con 18 crons
+├── api/index.js            # Entry serverless para Vercel
+├── handlers/               # Ruteo de mensajes (match, team, betting, OCR…)
+├── services/               # Lógica de negocio (scores365, sync, bet evaluator…)
+├── database/               # Conexión pg, schema.sql, migraciones
+├── utils/                  # logger, processGuard, jobGuard, adminAuth, constants…
+├── dashboard/              # SPA React (src/) + API Express (server/)
+│   ├── server/             # Express API (/api/football/*)
+│   ├── src/                # Clean Architecture (domain/data/infrastructure/presentation)
+│   └── docs/               # Bitácora de las fases del dashboard
+├── admin/                  # Panel admin (Express)
+├── docs/                   # Documentación del proyecto
+└── scripts/                # Herramientas one-off
 ```
 
-**⚽ ¡GOOOL!**
-
-```
-⚽ ¡¡¡ GOOOOOOOL de 🇧🇷 Brasil !!!
-
-⏱️ Minuto 45'
-📊 Marcador: 2 - 1
-
-🔥 ¡¡El partido está que arde!!
-```
-
-**❌ Selección Fallida**
-
-```
-📋 No fue esta vez...
-
-📋 Tu selección: Over 2.5
-📏 Línea: 2.5
-
-❌ Fallida - ¡Pero viene la próxima! 💪
-```
-
----
-
-## Arquitectura del Proyecto
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        Telegram (producción)                       │
-│                    @botmundialistabot (polling)                    │
-└──────────────────────────┬───────────────────────────────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                      messageHandler.js                            │
-│                 Router + Gemini (intent parser)                   │
-└──┬───────────────┬───────────────┬───────────────┬──────────────┘
-   │               │               │               │
-   ▼               ▼               ▼               ▼
-┌────────┐  ┌──────────┐  ┌────────────┐  ┌──────────────────┐
-│ match  │  │  table   │  │   follow   │  │   betImage       │
-│Handler │  │ Handler  │  │   Handler  │  │   Handler (OCR)   │
-└───┬────┘  └────┬─────┘  └─────┬──────┘  └────────┬─────────┘
-    │            │               │                   │
-    ▼            ▼               ▼                   ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Supabase PostgreSQL                          │
-│   competitions · games · standings · stats · history          │
-│   news · trends · odds · brackets · predictions              │
-│   competitors · athletes · venues · tickets · users          │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ ▲
-              ┌────────────┴─┴────────────┐
-              ▼                           ▼
-     ┌──────────────────┐      ┌──────────────────┐
-     │  syncService.js   │      │  Dashboard Web   │
-     │  ETL cron (PM2)   │      │  Express API     │
-     │  15s · 1m · 10m   │      │  (reads from DB)  │
-     │  1h · 6h · 24h   │      └──────────────────┘
-     └───────┬───────────┘
-             │
-             ▼
-     ┌──────────────────┐
-     │  365scores API   │
-     │  web (público)   │
-     └──────────────────┘
-```
-
----
-
-## Estructura de Archivos
-
-```
-ScoreHub/
-├── telegramBot.js              # Bot principal Telegram (long-polling)
-├── bot.js                      # Entry point PM2
-├── sync.js                     # ETL sync service (365scores → Supabase)
-├── package.json
-├── .env / .env.example
-│
-├── dashboard/                  # Dashboard Web
-│   ├── server/                 # Express API (19 controllers)
-│   │   └── controllers/       # Info, matches, standings, stats, news...
-│   └── admin/                  # Panel admin (HTML plano)
-│
-├── database/
-│   ├── connection.js           # Conexión Supabase PostgreSQL
-│   └── migrations/             # Migraciones SQL
-│       └── 004_scores365_data.sql  # 19 tablas de datos 365scores
-├── handlers/
-│   ├── messageHandler.js       # Router principal de mensajes
-│   ├── matchHandler.js         # Resultados y partidos
-│   ├── teamHandler.js          # Info y seguimiento de equipos
-│   ├── statsHandler.js         # Estadísticas
-│   ├── bettingHandler.js        # Análisis de apuestas
-│   ├── tableHandler.js         # Tablas de posiciones
-│   ├── mundialista365Handler.js # Tips, tendencias, cuotas, odds
-│   ├── mundialistaStatsHandler.js # Noticias, brackets, goleadores
-│   ├── followHandler.js        # /follow, /unfollow
-│   ├── queryParser.js          # NLP para detectar intents
-│   └── betImageHandler.js      # Procesamiento de imágenes OCR
-├── services/
-│   ├── syncService.js          # ETL motor (12 funciones de sync)
-│   ├── scores365Service.js      # Cliente 365scores (gzip, retry)
-│   ├── liveGamesPoller.js       # Polling live (25s cron)
-│   ├── matchSearch.js          # Búsqueda de partidos en DB
-│   ├── mundialCache.js         # Cache con TTL sobre Supabase
-│   ├── teamAliases.js          # Loader dinámico de equipos (DB + hardcode)
-│   ├── competitionName.js      # Nombre/alias de competencia desde DB
-│   ├── geminiService.js         # Wrapper Gemini
-│   ├── betEvaluator.js          # Evalúa 9 tipos de apuesta
-│   ├── intentParser.js          # Regex + Gemini fallback
-│   ├── images.js                # URLs de imágenes de atletas/equipos
-│   ├── formatters.js            # Formateadores de respuesta
-│   └── constants.js             # Constantes y mappings
-├── utils/
-│   ├── teamContext.js          # Flags, confederaciones
-│   └── formatters.js           # Formateadores tabla, match line
-└── scripts/
-    └── test-365-mundial.js     # Test E2E de datos ingestados
-```
-
----
-
-## Tecnologías Utilizadas
-
-| Categoría            | Tecnología                          | Propósito                              |
-| -------------------- | ----------------------------------- | -------------------------------------- |
-| **Bot Telegram**     | node-telegram-bot-api               | Bot en producción                      |
-| **Dashboard Front**  | React 19 + TypeScript + Vite 6     | UI del dashboard                       |
-| **Dashboard Back**   | Express.js                          | API REST 19 controllers                |
-| **Base de Datos**    | Supabase PostgreSQL                 | Persistencia principal                 |
-| **ETL**             | syncService.js + PM2                | Sincronización 365scores → Supabase    |
-| **API Fútbol**       | 365scores web API (pública)         | Datos en tiempo real                   |
-| **NLU**              | Gemini 2.5 Flash                   | Parseo de lenguaje natural             |
-| **OCR**              | Tesseract.js                       | Reconocimiento de texto en imágenes   |
-| **Scheduling**       | node-cron + PM2 + systemd          | Tareas programadas + auto-arranque    |
-
----
-
-## Requisitos Previos
-
-- **Node.js** 18+ instalado
-- **Supabase** cuenta (o PostgreSQL local)
-- **npm/pnpm** como gestor de paquetes
-
----
-
-## Instalación
-
-1. **Clonar el repositorio**
+## Setup rápido
 
 ```bash
-git clone https://github.com/Pochonski/ScoreHub.git
-cd ScoreHub
+# 1. Instalar dependencias
+npm install                # raíz (bot + sync)
+cd dashboard && npm install  # frontend
+cd dashboard/server && npm install  # API
+
+# 2. Configurar entorno
+cp .env.example .env       # y completa los valores reales (Telegram, Gemini, Supabase)
+
+# 3. Base de datos
+# Las migraciones están en database/migrations/ (002-005). Aplicarlas en Supabase.
+
+# 4. Arrancar (en terminales separadas)
+npm run start:telegram     # bot de Telegram (long-polling)
+node sync.js                # servicio de sincronización (crons)
+npm run start:dashboard     # API del dashboard (puerto 3002)
+cd dashboard && npm run dev # frontend Vite (puerto 5173, proxy /api → 3002)
 ```
 
-2. **Instalar dependencias del bot**
+## Deploy
 
-```bash
-npm install
-```
+- **Dashboard + API**: Vercel (`vercel.json`, serverless function `api/index.js`). Ver [docs/deploy-vercel.md](./docs/deploy-vercel.md).
+- **Bot + sync**: procesos long-running en un host aparte (VM, PM2, systemd).
 
-3. **Configurar variables de entorno**
+## Documentación
 
-```bash
-cp .env.example .env
-# Editar .env con tus credenciales
-```
+- [docs/README.md](./docs/README.md) — índice de docs.
+- [docs/bot-commands.md](./docs/bot-commands.md) — referencia de comandos del bot.
+- [docs/env-vars.md](./docs/env-vars.md) — variables de entorno.
+- [docs/migration-supabase-vercel.md](./docs/migration-supabase-vercel.md) — migración Cosmos→Supabase.
+- [docs/deploy-vercel.md](./docs/deploy-vercel.md) — cómo deployar el dashboard.
+- [dashboard/docs/](./dashboard/docs/) — bitácora de fases del dashboard.
 
-4. **Configurar base de datos**
+## Estado
 
-```bash
-# Ejecutar schema en Supabase o PostgreSQL
-psql -h your-host -U postgres -d your-db -f database/schema.sql
-```
+- WhatsApp: **legacy, inactivo** (se mantiene el código, no se invierte).
+- Cosmos DB: **eliminado** (migrado a Supabase).
+- Azure App Service: **eliminado** (migrado a Vercel).
 
-5. **Iniciar el bot de Telegram**
+## Licencia
 
-```bash
-npm run start:telegram
-```
+Privado.
 
-6. **Iniciar el Dashboard Web** (opcional, en otra terminal)
+## Tareas manuales pendientes
 
-```bash
-cd dashboard
-npm install
-npm run dev
-# Servidor Express: node server/index.js
-```
+Cosas que no se pueden automatizar desde código y requieren acción externa:
 
-7. **Iniciar panel admin** (opcional)
-
-```bash
-node admin/server.js
-```
-
----
-
-## Variables de Entorno
-
-```env
-# Base de Datos (Supabase)
-SUPABASE_DB_URL=postgresql://postgres:password@db.project.supabase.co:5432/postgres
-
-# 365scores
-PRIMARY_COMPETITION_ID=5930
-PRIMARY_SEASON=25
-SCORES365_APP_TYPE=5
-SCORES365_POLL_MS=25000
-SCORES365_MIN_INTERVAL_MS=120
-
-# Gemini AI
-GEMINI_API_KEY=your-gemini-api-key
-
-# Telegram
-TELEGRAM_TOKEN=your-bot-token
-
-# Dashboard
-ADMIN_PORT=3001
-DASHBOARD_PORT=3000
-```
-
----
-
-## Panel Administrativo
-
-El bot incluye un panel web para administrators en `http://localhost:3001`:
-
-- 📊 Estadísticas generales (usuarios, consultas, equipos seguidos)
-- 👥 Lista de usuarios registrados
-- 📝 Historial de consultas
-- 🏆 Equipos más seguidos
-- 📈 Consultas por tipo de intent
-
----
-
-## Workflow de una Apuesta
-
-```
-1. Usuario envía captura de pantalla por WhatsApp
-
-2. messageHandler detecta que es una imagen
-   └── betImageHandler.procesarImagenApuesta()
-
-3. OCR extrae texto con Tesseract.js
-   └── ocrService.procesarImagen()
-
-4. Parser normaliza los datos
-   └── betParserService.parseBetText()
-   └── marketNormalizer.normalizarMercado()
-
-5. Se busca el partido en la API
-   └── footballApi.buscarPartidoReal()
-
-6. Se guarda en base de datos
-   └── INSERT apuestas, apuesta_selecciones
-
-7. Si el partido existe, se inicia monitoreo
-   └── betTrackingEngine.iniciar(60)
-
-8. Cada 60 segundos se evalúan las selecciones
-   └── betTrackingEngine.cicloEvaluacion()
-   └── evaluarSeleccion() para cada apuesta
-
-9. Cuando cambia el estado, se notifica
-   └── notificationService.notificarSeleccionCumplida()
-   └── notificationService.notificarSeleccionFallida()
-
-10. Al terminar el partido, todo se cierra
-    └── cerrarApuesta()
-```
-
----
-
-## Consideraciones Importantes
-
-### ⚠️ Limitaciones del OCR
-
-- El reconocimiento de texto **no es 100% preciso**
-- Imágenes borrosas o con poco contraste reducen la calidad
-- Bet365 y otras casas pueden tener CAPTCHA que bloquean automatización
-- La confianza OCR se guarda para mostrar al usuario
-
-### ⚠️ Rate Limits
-
-- **RapidAPI**: 100 requests/día en el plan gratuito de SportAPI7
-- El cacheo inteligente minimiza llamadas a la API
-- El modo demo funciona sin API externa
-
-### ⚠️ Privacidad
-
-- Los mensajes de usuarios **no se almacenan** (solo el alias y consultas)
-- Los IDs de WhatsApp se ocultan en logs de producción
-- El modo demo funciona completamente sin base de datos
-
----
-
-## Comandos Disponibles
-
-| Comando                    | Descripción                    |
-| -------------------------- | ------------------------------ |
-| `ayuda`                    | Muestra todos los comandos     |
-| `¿Cómo quedó [equipo]?`    | Resultado del último partido   |
-| `[equipo] vs [equipo]`     | Resultado de enfrentamiento    |
-| `Analiza [eq1] vs [eq2]`   | Análisis detallado del partido |
-| `Dame info de [equipo]`    | Información del equipo         |
-| `Estadísticas de [equipo]` | Estadísticas completas         |
-| `Seguir [equipo]`          | Agregar a favoritos            |
-| `Mis equipos`              | Ver equipos seguidos           |
-| `Tabla del Mundial`        | Clasificación del Mundial      |
-| `Tabla de [liga]`          | Tabla de cualquier liga        |
-
----
-
-## License
-
-Este proyecto es para uso personal y educativo.
-
----
-
-## Créditos
-
-Desarrollado con 🤖 Claude (Anthropic) + ❤️ para el fútbol
-
----
-
-**¿Preguntas o problemas?** Abre un issue en el repositorio.
- 
-  
- 
+- **Renombrar el proyecto en Supabase**: el proyecto Supabase se llama "BotFutbolista" (un tercer nombre, distinto de `BotMundialista`/carpeta y `ScoreHub`/app). Para alinearlo, ir a la consola de Supabase → Project Settings → General → Name. No afecta a código ni connection strings.
+- **Renombrar la carpeta del repo** `BotMundialista` → `scorehub`: requiere rename en GitHub + actualizar clones locales y el deploy de Vercel.
+- **Instalar dependencias del root**: `cors`, `express-rate-limit`, `helmet`, `pino`, `pino-http`, `pino-pretty` están en `package.json` pero no en `node_modules`. El `utils/logger.js` tiene fallback a `console`, pero para usar pino correctamente correr `npm install` en la raíz.

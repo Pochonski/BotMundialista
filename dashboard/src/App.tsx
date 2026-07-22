@@ -7,9 +7,7 @@ import { HeroSkeleton } from '@/presentation/components/ui/Skeleton'
 const AnalysisPage = lazy(() =>
   import('@/presentation/pages/AnalysisPage').then((m) => ({ default: m.AnalysisPage }))
 )
-const NewsPage = lazy(() =>
-  import('@/presentation/pages/NewsPage').then((m) => ({ default: m.NewsPage }))
-)
+const NewsPage = lazy(() => import('@/presentation/pages/NewsPage').then((m) => ({ default: m.NewsPage })))
 const CompetitionPage = lazy(() =>
   import('@/presentation/pages/CompetitionPage').then((m) => ({ default: m.CompetitionPage }))
 )

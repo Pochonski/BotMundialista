@@ -1,117 +1,105 @@
 # Variables de entorno
 
-El bot lee las variables de `.env`.
+El bot, sync y dashboard leen las variables del `.env` de la raíz del repo.
+Ver [`.env.example`](../.env.example) para una plantilla copiable.
 
 ## Categorías
 
-### 1. Bases de datos
-
-#### PostgreSQL (DB principal)
-| Var | Ejemplo | Notas |
-|---|---|---|
-| `DB_HOST` | `aws-1-us-east-1.pooler.supabase.com` | FQDN del servidor PostgreSQL |
-| `DB_PORT` | `6543` | Puerto |
-| `DB_USER` | `postgres.<ref>` | |
-| `DB_PASSWORD` | `xxxxx` | |
-| `DB_NAME` | `postgres` | Nombre de la base de datos |
-| `DB_SSL` | `true` | |
-
-### 2. APIs externas
-
-| Var | Servicio | Notas |
-|---|---|---|
-| `RAPIDAPI_KEY` | RapidAPI - Free Football Data | Legacy, no usado activamente |
-| `RAPIDAPI_HOST` | `free-api-live-football-data.p.rapidapi.com` | Legacy |
-| `GEMINI_API_KEY` | Google Gemini 2.5 Flash | Para NLU y generación de respuestas |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Default |
-| `TELEGRAM_BOT_TOKEN` | Telegram BotFather | Para el bot de Telegram |
-
-### 3. 365scores (web API)
+### 1. Competencia / temporada
 
 | Var | Default | Notas |
 |---|---|---|
-| `SCORES365_TIMEZONE` | `America/Costa_Rica` | Zona horaria del usuario |
+| `PRIMARY_COMPETITION_ID` | `5930` | Mundial 2026 en 365scores |
+| `PRIMARY_SEASON` | `25` | Temporada del Mundial 2026 |
+| `CURRENT_SEASON` | `25` | Temporada "actual" para algunas queries |
+| `SYNC_START_DATE` | `20260601` | Inicio de ventana de sync (YYYYMMDD) |
+| `SYNC_END_DATE` | `20260815` | Fin de ventana de sync |
+
+### 2. Base de datos (Supabase PostgreSQL)
+
+Opción A (preferida, usa pooler Supavisor):
+
+| Var | Ejemplo | Notas |
+|---|---|---|
+| `SUPABASE_DB_URL` | `postgresql://postgres.xxxx@aws-0-xx.pipeliner.supabase.com:6543/postgres` | Una sola URL |
+
+Opción B (fallback, variables individuales):
+
+| Var | Ejemplo | Notas |
+|---|---|---|
+| `DB_HOST` | `db.tu-proyecto.supabase.co` | |
+| `DB_PORT` | `5432` (directo) o `6543` (pooler) | |
+| `DB_USER` | `postgres` | |
+| `DB_PASSWORD` | `xxxxx` | |
+| `DB_NAME` | `postgres` | |
+| `DB_SSL` | `true` | Recomendado en producción |
+| `DB_POOL_MAX` | `25` | Tamaño del pool de conexiones |
+
+### 3. APIs externas
+
+| Var | Servicio | Notas |
+|---|---|---|
+| `GEMINI_API_KEY` | Google Gemini | Para NLU (parseo de intent) y generación de respuestas |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Modelo a usar |
+| `TELEGRAM_BOT_TOKEN` | Telegram BotFather | Para el bot de Telegram |
+
+### 4. 365scores (web API)
+
+| Var | Default | Notas |
+|---|---|---|
+| `SCORES365_TIMEZONE` | `America/Costa_Rica` | Zona horaria |
 | `SCORES365_USER_COUNTRY` | `153` | ID de Costa Rica en 365scores |
 | `SCORES365_LANG` | `14` | 14 = español |
 | `SCORES365_APP_TYPE` | `5` | 5 = web |
 | `SCORES365_POLL_MS` | `25000` | Cada cuánto el `liveGamesPoller` hace requests |
-| `PRIMARY_COMPETITION_ID` | `5930` | ID de la competencia principal en 365scores |
 | `SCORES365_MIN_INTERVAL_MS` | `120` | Throttle mínimo entre llamadas HTTP |
+| `SCORES365_HTTP_TIMEOUT_MS` | `15000` | Timeout por request HTTP a 365scores |
 
-### 4. Notificaciones live
-
-| Var | Default | Notas |
-|---|---|---|
-| `ENABLE_LIVE_NOTIFIER` | `false` | Si `true`, el `telegramBot.js` registra el listener del notifier. **Default off** porque requiere partidos en vivo y suscriptores activos. |
-
-### 5. Server y misc
+### 5. Notificaciones live
 
 | Var | Default | Notas |
 |---|---|---|
-| `PORT` | `8080` | Puerto HTTP del health server |
-| `ADMIN_PORT` | `3001` | Puerto del panel admin |
+| `ENABLE_LIVE_NOTIFIER` | `false` | Si `true`, `telegramBot.js` registra el listener del notifier |
+
+### 6. Panel admin — auth
+
+| Var | Default | Notas |
+|---|---|---|
+| `ADMIN_TOKEN` | (vacío) | Token para acceder a `/admin/*`. Si no se setea (o mide < 8 chars), el admin queda **deshabilitado** (503). Se envía como `Authorization: Bearer <token>` o cookie `admin_token`. |
+| `ADMIN_STANDALONE` | `false` | Si `true`, el admin corre como servidor Express separado |
+
+### 7. Servidores y logging
+
+| Var | Default | Notas |
+|---|---|---|
+| `PORT` | `8080` | Puerto HTTP del health server (bot) |
+| `ADMIN_PORT` | `3001` | Puerto del panel admin standalone |
+| `DASHBOARD_PORT` | `3002` | Puerto del dashboard server |
+| `CORS_ORIGINS` | `http://localhost:5173,https://scorehub-rust.vercel.app` | Orígenes permitidos para el dashboard (CSV) |
+| `LOG_LEVEL` | `info` | Nivel de log pino (info, warn, error, debug) |
+| `NODE_ENV` | — | `production` activa comportamiento de prod |
+
+### 8. WhatsApp (legacy, inactivo)
+
+| Var | Default | Notas |
+|---|---|---|
 | `WA_SESSION_DIR` | `.wwebjs_auth` | Directorio de sesión de WhatsApp Web |
 
 ---
 
-## `.env.example` completo
+## Variables por componente
 
-```bash
-# WhatsApp Session
-WA_SESSION_DIR=.wwebjs_auth
-
-# Database PostgreSQL
-DB_HOST=aws-1-us-east-1.pooler.supabase.com
-DB_PORT=6543
-DB_USER=postgres.<ref>
-DB_PASSWORD=your-password
-DB_NAME=postgres
-DB_SSL=true
-
-# Football API (Free API Live Football Data - RapidAPI) - legacy
-RAPIDAPI_KEY=your-rapidapi-key
-RAPIDAPI_HOST=free-api-live-football-data.p.rapidapi.com
-
-# Telegram Bot
-TELEGRAM_BOT_TOKEN=your-telegram-bot-token
-
-# Gemini AI (Free tier - 1,500 requests/day)
-GEMINI_API_KEY=your-gemini-key
-
-# Server
-ADMIN_PORT=3001
-PORT=8080
-
-# 365scores (webws.365scores.com)
-SCORES365_TIMEZONE=America/Costa_Rica
-SCORES365_USER_COUNTRY=153
-SCORES365_LANG=14
-SCORES365_APP_TYPE=5
-SCORES365_POLL_MS=25000
-PRIMARY_COMPETITION_ID=5930
-SCORES365_MIN_INTERVAL_MS=120
-
-# Notificaciones live (goles, tarjetas, etc.)
-ENABLE_LIVE_NOTIFIER=false
-```
-
----
-
-## Variables usadas en runtime
-
-| Componente | Variables |
+| Componente | Variables principales |
 |---|---|
-| `telegramBot.js` | TELEGRAM_BOT_TOKEN, SCORES365_*, GEMINI_API_KEY, DB_* |
-| `bot.js` (WhatsApp) | DB_*, SCORES365_*, GEMINI_API_KEY |
-| `services/scores365Service.js` | SCORES365_* |
-| `services/footballApi.js` | RAPIDAPI_* |
-| `services/geminiService.js` | GEMINI_API_KEY, GEMINI_MODEL |
-| `services/liveGamesPoller.js` | SCORES365_* |
-| `services/cosmosRefresh.js` | SCORES365_* |
-| `services/telegramNotifier.js` | ENABLE_LIVE_NOTIFIER (gate) |
-| `services/betEvaluator.js` | DB_* |
-| `scripts/cosmos-bootstrap.js` | SCORES365_* |
-| `scripts/test-365-mundial.js` | SCORES365_* |
+| `telegramBot.js` | `TELEGRAM_BOT_TOKEN`, `SCORES365_*`, `GEMINI_*`, `DB_*`, `ADMIN_TOKEN` |
+| `bot.js` (WhatsApp legacy) | `DB_*`, `SCORES365_*`, `GEMINI_*`, `WA_SESSION_DIR` |
+| `sync.js` | `DB_*`, `SCORES365_*`, `PRIMARY_*`, `SYNC_*` |
+| `services/scores365Service.js` | `SCORES365_*` |
+| `services/geminiService.js` | `GEMINI_API_KEY`, `GEMINI_MODEL` |
+| `services/liveGamesPoller.js` | `SCORES365_*`, `PRIMARY_COMPETITION_ID` |
+| `services/telegramNotifier.js` | `ENABLE_LIVE_NOTIFIER` (gate) |
+| `dashboard/server/index.js` | `DASHBOARD_PORT`, `CORS_ORIGINS`, `LOG_LEVEL`, `DB_*`/`SUPABASE_DB_URL`, `PRIMARY_*` |
+| `admin/server.js` | `ADMIN_TOKEN`, `DB_*`, `ADMIN_PORT` |
 
 ---
 
@@ -122,4 +110,5 @@ ENABLE_LIVE_NOTIFIER=false
 | Supabase PostgreSQL | Free | $0 |
 | Gemini 2.5 Flash | Free | $0 (~1,500 req/día) |
 | 365scores (web) | — | $0 (público) |
+| Vercel | Hobby | $0 |
 | **TOTAL** | | **$0/mes** |

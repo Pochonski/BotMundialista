@@ -86,7 +86,7 @@ export function BracketTree() {
                 className="relative"
                 style={{ paddingTop: totalGames <= 2 ? `${(2 - totalGames) * 40}px` : '0' }}
               >
-                {stage.games.map((game, gi) => {
+                {stage.games.map((game) => {
                   const bracketHeight = 56
                   return (
                     <div key={game.id}>

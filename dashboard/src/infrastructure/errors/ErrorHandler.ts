@@ -36,7 +36,7 @@ class ErrorHandler {
     return ErrorHandler.instance
   }
 
-  handle(error: unknown, customMessage?: string): ErrorInfo {
+  handle(error: unknown, _customMessage?: string): ErrorInfo {
     const errorInfo: ErrorInfo = {
       message: 'Error desconocido',
       timestamp: Date.now(),

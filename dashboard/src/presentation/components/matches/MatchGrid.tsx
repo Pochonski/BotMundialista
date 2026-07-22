@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom'
 import type { Game } from '@/domain/entities/Game'
-import { useTournamentInfo } from '@/presentation/hooks/useTournamentInfo'
 import { MatchCard } from './MatchCard'
 
 interface MatchGridProps {
@@ -54,7 +53,6 @@ function formatGroupLabelUpper(dateKey: string): string {
 }
 
 export function MatchGrid({ games, onSelect, featuredId, emptyMessage }: MatchGridProps) {
-  const { info } = useTournamentInfo()
   const compName = 'Copa Mundial de la FIFA 2026'
 
   if (games.length === 0) {

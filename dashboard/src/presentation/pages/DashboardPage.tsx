@@ -16,7 +16,7 @@ export function DashboardPage() {
   const [filter, setFilter] = useState<FilterValue>('all')
   const [dateOffset, setDateOffset] = useState<number | null>(null)
   const { game: featuredGame, loading: featuredLoading, refetch: refetchFeatured } = useFeaturedGame()
-  const { games: liveGames, loading: liveLoading, error: liveError, refetch: refetchLive } = useLiveGames()
+  const { games: liveGames, error: liveError, refetch: refetchLive } = useLiveGames()
   const { games: allGames, loading: gamesLoading, error: gamesError, refetch: refetchGames } = useGames()
   const [heroCompact, setHeroCompact] = useState(false)
   const heroRef = useRef<HTMLDivElement>(null)

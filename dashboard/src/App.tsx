@@ -17,6 +17,9 @@ const CompetitionPage = lazy(() =>
 const PlayerProfilePage = lazy(() =>
   import('@/presentation/pages/PlayerProfilePage').then((m) => ({ default: m.PlayerProfilePage }))
 )
+const TeamDetailPage = lazy(() =>
+  import('@/presentation/pages/TeamDetailPage').then((m) => ({ default: m.TeamDetailPage }))
+)
 const HistoryEditionPage = lazy(() =>
   import('@/presentation/pages/HistoryEditionPage').then((m) => ({ default: m.HistoryEditionPage }))
 )
@@ -70,6 +73,7 @@ export default function App() {
           <Route path="/competicion/:id/:tab" element={<CompetitionPage />} />
           <Route path="/historial/:seasonNum" element={<HistoryEditionPage />} />
           <Route path="/player/:id" element={<PlayerProfilePage />} />
+          <Route path="/equipo/:id" element={<TeamDetailPage />} />
           <Route path="/partido/:id" element={<MatchDetailPage />} />
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />

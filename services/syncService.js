@@ -130,16 +130,51 @@ async function syncFixtures() {
 async function syncStandingsForComp(comp) {
   log(`[comp=${comp.id}] Fetching standings...`);
   try {
-    const data = await api.getStandings(comp.id, 1, comp.seasonNum);
-    const rows = [{
-      competition_id: comp.id,
-      stage_num: 1,
-      season_num: comp.seasonNum,
-      data: JSON.stringify(data),
-      updated_at: new Date().toISOString(),
-    }];
-    await upsertMany('standings', ['competition_id', 'stage_num', 'season_num'], rows);
-    log(`[comp=${comp.id}] Synced standings`);
+    // Pedimos type=2 (Apertura) para la Liga Promerica, type=1 (overall)
+    // para el Mundial. El upstream detecta la "current stage" por season.
+    const typesToFetch = [1, 2]; // overall + apertura
+    const stagesByType = new Map();
+
+    for (const type of typesToFetch) {
+      try {
+        const data = await api.getStandings(comp.id, type, comp.seasonNum, { type });
+        if (data?.standings?.length) {
+          stagesByType.set(type, data);
+        }
+      } catch (_) {
+        // some comps might not have a stage for this type
+      }
+    }
+
+    // Persistir cada stage (PK es competition_id+stage_num+season_num).
+    for (const [type, data] of stagesByType) {
+      const rows = [{
+        competition_id: comp.id,
+        stage_num: type,
+        season_num: comp.seasonNum,
+        data: JSON.stringify(data),
+        updated_at: new Date().toISOString(),
+      }];
+      await upsertMany('standings', ['competition_id', 'stage_num', 'season_num'], rows);
+    }
+
+    // Fetch con withSeasonsFilter=true una vez para guardar seasonsFilter.
+    try {
+      const sf = await api.getStandings(comp.id, 1, comp.seasonNum, { withSeasonsFilter: true });
+      if (sf?.seasonsFilter) {
+        // Update el row más reciente con seasonsFilter.
+        const rows = [{
+          competition_id: comp.id,
+          stage_num: 1,
+          season_num: comp.seasonNum,
+          data: JSON.stringify(sf),
+          updated_at: new Date().toISOString(),
+        }];
+        await upsertMany('standings', ['competition_id', 'stage_num', 'season_num'], rows);
+      }
+    } catch (_) { /* not critical */ }
+
+    log(`[comp=${comp.id}] Synced standings (${stagesByType.size} stages)`);
   } catch (e) {
     log(`[comp=${comp.id}] Error syncing standings:`, e.message);
   }
@@ -778,6 +813,157 @@ async function syncVenues() {
   }
 }
 
+/**
+ * syncTransfers: cachea los fichajes por competición. Usa la tabla
+ * `competition_transfers` con PK (competition_id, transfer_id). El `athleteId`
+ * se guarda en `athlete_id` para joins con la tabla `athletes`.
+ */
+async function syncTransfersForComp(comp) {
+  log(`[comp=${comp.id}] Fetching transfers...`);
+  try {
+    const data = await api.getTransfers(comp.id, { limit: 100 });
+    const transfers = data?.transfers ?? [];
+    const athletes = data?.athletes ?? [];
+    const competitors = data?.competitors ?? [];
+
+    // Upsert athletes que aparezcan en transfers (no sean ya conocidos).
+    // Dedupe por id antes del bulk INSERT — `upsertMany` con ON CONFLICT
+    // falla si la misma fila aparece dos veces en el mismo VALUES.
+    if (athletes.length) {
+      const seen = new Set();
+      const athleteRows = [];
+      for (const a of athletes) {
+        const id = Number(a.id);
+        if (!Number.isFinite(id) || seen.has(id)) continue;
+        seen.add(id);
+        athleteRows.push({
+          id,
+          name: a.name ?? null,
+          data: JSON.stringify(a),
+          updated_at: new Date().toISOString(),
+        });
+      }
+      if (athleteRows.length) {
+        await pool.query(
+          `INSERT INTO athletes (id, name, data, updated_at)
+           VALUES ${athleteRows.map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}::jsonb, $${i * 4 + 4})`).join(', ')}
+           ON CONFLICT (id) DO UPDATE
+             SET name = COALESCE(EXCLUDED.name, athletes.name),
+                 data = EXCLUDED.data,
+                 updated_at = EXCLUDED.updated_at`,
+          athleteRows.flatMap(r => [r.id, r.name, r.data, r.updated_at])
+        );
+      }
+    }
+
+    // Upsert competitors externos que aparezcan en transfers (no en active comp).
+    if (competitors.length) {
+      for (const c of competitors) {
+        const row = {
+          id: c.id,
+          competition_id: comp.id,
+          name: c.name ?? null,
+          data: JSON.stringify(c),
+          updated_at: new Date().toISOString(),
+        };
+        await upsertMany('competitors', 'id', [row]);
+      }
+    }
+
+    // Replace transfers de esta comp (estrategia: DELETE + INSERT, simple).
+    await pool.query(
+      `DELETE FROM competition_transfers WHERE competition_id = $1`,
+      [comp.id]
+    );
+    if (transfers.length) {
+      const rows = transfers.map(t => ({
+        competition_id: comp.id,
+        transfer_id: Number(t.id),
+        athlete_id: t.athleteId != null ? Number(t.athleteId) : null,
+        origin_id: t.origin != null ? Number(t.origin) : null,
+        target_id: t.target != null ? Number(t.target) : null,
+        time: t.time ?? null,
+        price: t.price ?? null,
+        position_id: t.positionId != null ? Number(t.positionId) : null,
+        is_arrival: !!t.isArrival,
+        is_departure: !!t.isDeparture,
+        status_id: t.statusId != null ? Number(t.statusId) : null,
+        status_name: t.statusName ?? null,
+        data: JSON.stringify(t),
+        updated_at: new Date().toISOString(),
+      }));
+      const keys = Object.keys(rows[0]);
+      const placeholders = rows.map((_, ri) =>
+        '(' + keys.map((_, ci) => `$${ri * keys.length + ci + 1}`).join(', ') + ')'
+      ).join(', ');
+      const values = rows.flatMap(r => keys.map(k => r[k]));
+      await pool.query(
+        `INSERT INTO competition_transfers (${keys.join(', ')}) VALUES ${placeholders}`,
+        values
+      );
+    }
+    log(`[comp=${comp.id}] Synced ${transfers.length} transfers, ${athletes.length} athletes`);
+  } catch (e) {
+    log(`[comp=${comp.id}] Error syncing transfers:`, e.message);
+  }
+}
+
+async function syncTransfers() {
+  log('Syncing transfers (multi-comp)...');
+  await forEachActive(syncTransfersForComp);
+}
+
+/**
+ * syncSuggestions: cachea sugerencias de partidos (top upcoming games con
+ * valor de apuesta). Tabla `game_suggestions` con PK `game_id`.
+ */
+async function syncSuggestionsForComp(comp) {
+  log(`[comp=${comp.id}] Fetching game suggestions...`);
+  try {
+    const data = await api.getGameSuggestions(comp.id);
+    const suggested = data?.suggestedGames ?? [];
+    if (!suggested.length) {
+      // Clear any stale suggestions for this comp.
+      await pool.query(
+        `DELETE FROM game_suggestions WHERE competition_id = $1`,
+        [comp.id]
+      );
+      log(`[comp=${comp.id}] 0 suggestions`);
+      return;
+    }
+
+    await pool.query(
+      `DELETE FROM game_suggestions WHERE competition_id = $1`,
+      [comp.id]
+    );
+
+    const rows = suggested.map(g => ({
+      game_id: Number(g.id),
+      competition_id: comp.id,
+      rank: g.rank ?? null,
+      data: JSON.stringify(g),
+      updated_at: new Date().toISOString(),
+    }));
+    const keys = Object.keys(rows[0]);
+    const placeholders = rows.map((_, ri) =>
+      '(' + keys.map((_, ci) => `$${ri * keys.length + ci + 1}`).join(', ') + ')'
+    ).join(', ');
+    const values = rows.flatMap(r => keys.map(k => r[k]));
+    await pool.query(
+      `INSERT INTO game_suggestions (${keys.join(', ')}) VALUES ${placeholders}`,
+      values
+    );
+    log(`[comp=${comp.id}] Synced ${rows.length} suggestions`);
+  } catch (e) {
+    log(`[comp=${comp.id}] Error syncing suggestions:`, e.message);
+  }
+}
+
+async function syncSuggestions() {
+  log('Syncing suggestions (multi-comp)...');
+  await forEachActive(syncSuggestionsForComp);
+}
+
 async function syncAll() {
   log('Running full sync (multi-comp)...');
   await syncCatalog();
@@ -800,6 +986,8 @@ async function syncAll() {
   await syncLiveStats();
   await syncAthletes();
   await syncVenues();
+  await syncTransfers();
+  await syncSuggestions();
   log('Full sync complete');
 }
 
@@ -826,5 +1014,9 @@ module.exports = {
   syncCountries,
   syncAthletes,
   syncVenues,
+  syncTransfers,
+  syncTransfersForComp,
+  syncSuggestions,
+  syncSuggestionsForComp,
   syncAll,
 };

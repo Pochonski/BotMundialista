@@ -3,47 +3,18 @@ import { useStandings } from '@/presentation/hooks/useStandings'
 import { GroupStandings } from '@/presentation/components/standings/GroupStandings'
 import { StandingsSkeleton } from '@/presentation/components/ui/Skeleton'
 
-function AccordionSection({
-  title,
-  defaultOpen,
-  children,
-}: {
-  title: string
-  defaultOpen?: boolean
-  children: React.ReactNode
-}) {
-  const [open, setOpen] = useState(defaultOpen ?? true)
-  return (
-    <div className="bg-bg-card border-border-card overflow-hidden rounded-xl border">
-      <button
-        onClick={() => setOpen(!open)}
-        className="hover:bg-bg-elevated/20 focus-visible flex w-full items-center justify-between px-5 py-4 text-left transition-colors"
-        aria-expanded={open}
-      >
-        <span className="font-display text-text-primary text-lg font-semibold">{title}</span>
-        <span
-          className={`text-text-dim shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M3 5l4 4 4-4" />
-          </svg>
-        </span>
-      </button>
-      <div
-        className={`grid transition-all duration-300 ease-in-out ${
-          open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-        }`}
-      >
-        <div className="overflow-hidden">
-          <div className="border-border-card/50 border-t">{children}</div>
-        </div>
-      </div>
-    </div>
-  )
+interface Props {
+  competitionId?: number
 }
 
-export function StandingsTab({ competitionId }: { competitionId?: number }) {
-  const { groups, loading, error } = useStandings(competitionId)
+const STAGES = [
+  { id: 1, label: 'General' },
+  { id: 2, label: 'Apertura' },
+] as const
+
+export function StandingsTab({ competitionId }: Props) {
+  const [stageNum, setStageNum] = useState<number>(1)
+  const { groups, loading, error } = useStandings(competitionId, { stageNum })
 
   if (loading) return <StandingsSkeleton />
 
@@ -65,12 +36,45 @@ export function StandingsTab({ competitionId }: { competitionId?: number }) {
     )
   }
 
+  const showStageSelector = groups.some(
+    g => g.displayName && g.displayName.toLowerCase().includes('apertura')
+  )
+
   return (
     <div className="space-y-3">
-      {groups.map((group) => (
-        <AccordionSection key={group.name} title={group.name} defaultOpen>
+      {showStageSelector && (
+        <div className="flex justify-end">
+          <div className="bg-bg-card border-border-card inline-flex gap-1 rounded-full border p-1">
+            {STAGES.map(s => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setStageNum(s.id)}
+                className={`font-body focus-visible rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  stageNum === s.id
+                    ? 'bg-accent-gold/15 text-accent-gold'
+                    : 'text-text-muted hover:text-text-primary'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {groups.map(group => (
+        <div
+          key={group.name + stageNum}
+          className="bg-bg-card border-border-card overflow-hidden rounded-xl border"
+        >
+          <div className="border-border-card border-b px-4 py-3">
+            <h3 className="font-display text-text-primary text-base font-semibold">
+              {group.displayName || group.name}
+            </h3>
+          </div>
           <GroupStandings groups={[group]} hideHeader />
-        </AccordionSection>
+        </div>
       ))}
     </div>
   )

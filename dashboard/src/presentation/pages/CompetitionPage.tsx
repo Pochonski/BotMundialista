@@ -6,25 +6,33 @@ import { StandingsTab } from '@/presentation/components/competition/StandingsTab
 import { BracketsTab } from '@/presentation/components/competition/BracketsTab'
 import { StatsTab } from '@/presentation/components/competition/StatsTab'
 import { HistoryTab } from '@/presentation/components/competition/HistoryTab'
+import { TransfersTab } from '@/presentation/components/competition/TransfersTab'
 import { ErrorState } from '@/presentation/components/ui/ErrorState'
 
-type TabId = 'standings' | 'brackets' | 'stats' | 'history'
+type TabId = 'standings' | 'brackets' | 'stats' | 'transfers' | 'history'
 
 interface TabDef {
   id: TabId
   label: string
   requireFlag?: 'hasGroups' | 'hasBrackets'
+  /** Ocultar si la comp no soporta transfers (no endpoint upstream). */
+  showIf?: (comp: { hasTransfers?: boolean } | null) => boolean
 }
 
 const ALL_TABS: readonly TabDef[] = [
   { id: 'standings', label: 'Posiciones', requireFlag: 'hasGroups' },
   { id: 'brackets', label: 'Eliminatorias', requireFlag: 'hasBrackets' },
+  {
+    id: 'transfers',
+    label: 'Fichajes',
+    showIf: c => c?.hasTransfers === true,
+  },
   { id: 'stats', label: 'Estadísticas' },
   { id: 'history', label: 'Historia' },
 ]
 
 function isValidTab(tab: string | undefined): tab is TabId {
-  return !!tab && ALL_TABS.some(t => t.id === tab)
+  return !!tab && (ALL_TABS as readonly { id: string }[]).some(t => t.id === tab)
 }
 
 export function CompetitionPage() {
@@ -50,8 +58,9 @@ export function CompetitionPage() {
   // Determinar tabs visibles según las flags de la competición.
   const visibleTabs = useMemo(() => {
     return ALL_TABS.filter(t => {
-      if (!t.requireFlag) return true
-      return detail?.[t.requireFlag] === true
+      if (t.requireFlag && detail?.[t.requireFlag] !== true) return false
+      if (t.showIf && !t.showIf(detail)) return false
+      return true
     })
   }, [detail])
 
@@ -180,6 +189,7 @@ export function CompetitionPage() {
       <div className="animate-fade-in">
         {activeTab === 'standings' && <StandingsTab competitionId={competitionId} />}
         {activeTab === 'brackets' && <BracketsTab competitionId={competitionId} />}
+        {activeTab === 'transfers' && <TransfersTab competitionId={competitionId} />}
         {activeTab === 'stats' && <StatsTab competitionId={competitionId} />}
         {activeTab === 'history' && <HistoryTab competitionId={competitionId} />}
       </div>

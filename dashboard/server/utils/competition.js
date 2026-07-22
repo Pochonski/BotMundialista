@@ -75,15 +75,17 @@ function _peekCache() { return cache; }
  *   ?competitionId=5930          (preferred, query)
  *   ?competition=5930            (alias)
  *   X-Competition-Id: 5930       (header, optional)
+ *   params.id                    (Express path param, opcional)
  *
  * Retorna `{ competitionId, seasonNum, comp }` o `null` si respondió 404.
  */
-async function resolveCompetition(req, res, { allowNone = false } = {}) {
+async function resolveCompetition(req, res, { allowNone = false, fallback } = {}) {
   const raw = req.query.competitionId
             ?? req.query.competition
             ?? req.headers['x-competition-id']
+            ?? (req.params && req.params.id ? parseInt(req.params.id, 10) : null)
             ?? null;
-  const requested = raw != null && raw !== '' ? parseInt(raw, 10) : DEFAULT_COMP_ID;
+  const requested = raw != null && raw !== '' ? parseInt(raw, 10) : (fallback ?? DEFAULT_COMP_ID);
 
   if (!Number.isFinite(requested)) {
     if (allowNone) return null;

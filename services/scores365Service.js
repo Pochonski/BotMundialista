@@ -127,15 +127,85 @@ const api = {
   getGameNews: (gameId) => get('/web/news/', `games=${gameId}&isPreview=false`),
 
   getTournamentStats: (competitionId, seasonNum, competitors = '') => get('/web/stats/', `competitions=${competitionId}${seasonNum ? `&seasonNum=${seasonNum}` : ''}${competitors ? `&competitors=${competitors}` : ''}&withSeasons=true`),
-  getStandings: (competitionId, stageNum, seasonNum) => get('/web/standings/', `competitions=${competitionId}&live=false&isPreview=true&stageNum=${stageNum}&seasonNum=${seasonNum}`),
+  // Standings admite `type` (1=overall, 2=annual, 3=apertura, 4=clausura...) y
+  // `withSeasonsFilter=true` para devolver filtro histórico de temporadas.
+  getStandings: (competitionId, stageNum, seasonNum, opts = {}) => {
+    const params = [`competitions=${competitionId}`, 'live=false', `stageNum=${stageNum}`, `seasonNum=${seasonNum}`]
+    if (opts.type != null) params.push(`type=${opts.type}`)
+    if (opts.withSeasonsFilter) params.push('withSeasonsFilter=true')
+    return get('/web/standings/', params.join('&'))
+  },
   getBrackets: (competitionId) => get('/web/brackets/', `competitions=${competitionId}&live=false`),
   getCompetitionHistory: (competitionId) => get('/web/competitions/history/', `competitions=${competitionId}`),
-  getFixtures: (competitionId) => get('/web/games/fixtures/', `competitions=${competitionId}&showOdds=true&includeTopBettingOpportunity=1`),
+  getFixtures: (competitionId, opts = {}) => {
+    const params = [`competitions=${competitionId}`, 'showOdds=true', 'includeTopBettingOpportunity=1']
+    if (opts.roundNum != null) params.push(`roundNum=${opts.roundNum}`)
+    return get('/web/games/fixtures/', params.join('&'))
+  },
   getTeamOfWeek: (competitionId) => get('/web/competitions/teamoftheweek/', `competitions=${competitionId}`),
 
   getPredictions: (sports = 1, competitors = '') => get('/web/games/predictions/', `sports=${sports}${competitors ? `&competitors=${competitors}` : ''}`),
   getOddsLines: (gameId) => get('/web/bets/lines/', `games=${gameId}`),
   getOutrights: (competitionId) => get('/web/bets/outrights/', `competition=${competitionId}&sport=1`),
+
+  // ============================================================================
+  // ENHANCED endpoints (Liga Promerica + multi-comp)
+  // ============================================================================
+
+  // Fichajes / transferencias. Devuelve `transfers[]`, `athletes[]`,
+  // `competitors[]`. Para filtrar por equipo destino usar `target=ID`;
+  // por equipo origen, `origin=ID`. Sin filtro = todas las del competition.
+  getTransfers: (competitionId, opts = {}) => {
+    const params = [`competitions=${competitionId}`]
+    if (opts.limit != null) params.push(`limit=${opts.limit}`)
+    if (opts.origin != null) params.push(`origin=${opts.origin}`)
+    if (opts.target != null) params.push(`target=${opts.target}`)
+    return get('/web/transfers/', params.join('&'))
+  },
+
+  // Sugerencias de partidos (16 upcoming games rankeados por valor de apuesta).
+  getGameSuggestions: (competitionId) =>
+    get('/web/games/suggestions/', `competitions=${competitionId}`),
+
+  // Detalle de un trend (texto, juegos de soporte con outcome).
+  getTrendDetails: (trendId) =>
+    get('/web/trends/details/', `trendId=${trendId}`),
+
+  // Highlights recientes de un competition.
+  getCompetitionHighlights: (competitionId, numberOfGames = 5) =>
+    get('/web/games/highlights/', `competitions=${competitionId}&numberOfGames=${numberOfGames}`),
+
+  // Detalle completo de un equipo.
+  getCompetitor: (competitorId, opts = {}) => {
+    const params = [`competitors=${competitorId}`]
+    if (opts.withSeasons) params.push('withSeasons=true')
+    if (opts.isDashboard !== false) params.push('isDashboard=true')
+    return get('/web/competitors/', params.join('&'))
+  },
+
+  // Forma reciente de un equipo (5 partidos por defecto).
+  getCompetitorRecentForm: (competitorId, numOfGames = 5) =>
+    get('/web/competitors/recentForm', `competitor=${competitorId}&numOfGames=${numOfGames}`),
+
+  // Games paginados por competition (con aftergame + direction).
+  getCompetitionGames: (competitionId, opts = {}) => {
+    const params = [`competitions=${competitionId}`, 'games=1']
+    if (opts.aftergame != null) params.push(`aftergame=${opts.aftergame}`)
+    if (opts.direction != null) params.push(`direction=${opts.direction}`)
+    if (opts.withMainOdds) params.push('withmainodds=true')
+    return get('/web/games/', params.join('&'))
+  },
+
+  // Búsqueda global.
+  search: (query, opts = {}) => {
+    const params = [`query=${encodeURIComponent(query)}`]
+    if (opts.filter) params.push(`filter=${opts.filter}`)
+    return get('/web/search/', params.join('&'))
+  },
+
+  // ============================================================================
+  // Athlete endpoints
+  // ============================================================================
 
   getAthlete: (athleteId, fullDetails = true) => get('/web/athletes/', `athletes=${athleteId}${fullDetails ? '&fullDetails=true' : ''}`),
   getAthleteNextGame: (athleteId) => get('/web/athletes/nextGame', `athletes=${athleteId}&fullDetails=true`),

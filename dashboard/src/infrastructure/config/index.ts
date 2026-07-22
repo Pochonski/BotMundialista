@@ -42,4 +42,13 @@ export const ENDPOINTS = {
   competitionsFeatured: `/competitions/featured`,
   competitionById: (id: number | string) => `/competitions/${id}`,
   competitionSeasons: (id: number | string) => `/competitions/${id}/seasons`,
+  competitionTransfers: (id: number | string) => `/competitions/${id}/transfers`,
+  competitionTransfersSummary: (id: number | string) => `/competitions/${id}/transfers/summary`,
+  suggestions: `/suggestions`,
+  standingsSeasons: `/standings/seasons`,
+  teamInfo: (id: number | string) => `/teams/${id}/info`,
+  teamRecentForm: (id: number | string) => `/teams/${id}/recent-form`,
+  teamUpcoming: (id: number | string) => `/teams/${id}/upcoming`,
+  teamRecentMatches: (id: number | string) => `/teams/${id}/recent-matches`,
+  trendDetails: `/trends/details`,
 } as const

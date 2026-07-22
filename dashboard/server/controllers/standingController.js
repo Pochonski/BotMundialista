@@ -10,34 +10,108 @@ async function getStandings(req, res, next) {
     if (!resolved) return;
     const { competitionId, seasonNum } = resolved;
 
+    // Cliente puede pedir otra etapa (Apertura, Annual, etc.) y temporada.
+    const stageNum = req.query.stageNum != null ? parseInt(req.query.stageNum, 10) : 1;
+    const requestedSeason = req.query.seasonNum != null ? parseInt(req.query.seasonNum, 10) : seasonNum;
+
     const { rows } = await pool.query(
-      'SELECT data FROM standings WHERE competition_id = $1 AND stage_num = 1 AND season_num = $2',
-      [competitionId, seasonNum]
+      `SELECT data FROM standings
+        WHERE competition_id = $1 AND stage_num = $2 AND season_num = $3`,
+      [competitionId, stageNum, requestedSeason]
     );
-    if (!rows.length) return res.json([]);
 
-    const apiData = rows[0].data;
-    if (!apiData?.standings?.length) return res.json([]);
+    if (rows.length) {
+      const apiData = rows[0].data;
+      const stagesArr = apiData?.standings ?? [];
+      if (stagesArr.length) {
+        const standings = stagesArr[0].rows || [];
+        const groupsMap = new Map();
 
-    const standings = apiData.standings[0].rows || [];
-    const groupsMap = new Map();
+        standings.forEach(r => {
+          const gn = r.groupNum || 1;
+          if (!groupsMap.has(gn)) {
+            groupsMap.set(gn, { name: GROUP_NAMES[gn - 1] || `Grupo ${gn}`, rows: [] });
+          }
+          groupsMap.get(gn).rows.push(transformStandingRow(r, r.competitor?.id));
+        });
 
-    standings.forEach(r => {
-      const gn = r.groupNum || 1;
-      if (!groupsMap.has(gn)) {
-        groupsMap.set(gn, { name: GROUP_NAMES[gn - 1] || `Grupo ${gn}`, rows: [] });
+        const groups = Array.from(groupsMap.entries())
+          .sort(([a], [b]) => a - b)
+          .map(([, g]) => ({
+            ...g,
+            displayName: stagesArr[0].displayName,
+            isCurrentStage: stagesArr[0].isCurrentStage,
+            rows: g.rows.sort((a, b) => a.position - b.position),
+          }));
+
+        return res.json(groups);
       }
-      groupsMap.get(gn).rows.push(transformStandingRow(r, r.competitor?.id));
-    });
+    }
 
-    const groups = Array.from(groupsMap.entries())
-      .sort(([a], [b]) => a - b)
-      .map(([, g]) => ({
-        ...g,
-        rows: g.rows.sort((a, b) => a.position - b.position),
-      }));
+    // Si no hay cache, intenta en vivo.
+    try {
+      const live = await scores365.getStandings(competitionId, stageNum, requestedSeason);
+      const stagesArr = live?.standings ?? [];
+      if (!stagesArr.length) return res.json([]);
 
-    res.json(groups);
+      const standings = stagesArr[0].rows || [];
+      const groupsMap = new Map();
+      standings.forEach(r => {
+        const gn = r.groupNum || 1;
+        if (!groupsMap.has(gn)) {
+          groupsMap.set(gn, { name: GROUP_NAMES[gn - 1] || `Grupo ${gn}`, rows: [] });
+        }
+        groupsMap.get(gn).rows.push(transformStandingRow(r, r.competitor?.id));
+      });
+      const groups = Array.from(groupsMap.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([, g]) => ({
+          ...g,
+          displayName: stagesArr[0].displayName,
+          isCurrentStage: stagesArr[0].isCurrentStage,
+          rows: g.rows.sort((a, b) => a.position - b.position),
+        }));
+      return res.json(groups);
+    } catch (_) {
+      return res.json([]);
+    }
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /standings/seasons?competitionId=X
+ * Devuelve la lista de temporadas disponibles (para el selector).
+ * Cache: tabla standings (seasonsFilter viene junto a /standings cuando
+ * se llama con withSeasonsFilter=true).
+ */
+async function getStandingsSeasons(req, res, next) {
+  try {
+    const resolved = await resolveCompetition(req, res);
+    if (!resolved) return;
+    const { competitionId, seasonNum } = resolved;
+
+    // Reusar la cache: trae la última standings con withSeasonsFilter.
+    const { rows } = await pool.query(
+      `SELECT data FROM standings
+        WHERE competition_id = $1
+        ORDER BY season_num DESC LIMIT 1`,
+      [competitionId]
+    );
+    if (rows.length) {
+      const sf = rows[0].data?.seasonsFilter;
+      if (Array.isArray(sf)) return res.json(sf);
+    }
+
+    // Fallback: pedir al upstream en vivo.
+    try {
+      const live = await scores365.getStandings(competitionId, 1, seasonNum, { withSeasonsFilter: true });
+      const sf = live?.seasonsFilter;
+      if (Array.isArray(sf)) return res.json(sf);
+    } catch (_) { /* fallthrough */ }
+
+    res.json([]);
   } catch (err) {
     next(err);
   }
@@ -111,4 +185,4 @@ async function getBrackets(req, res, next) {
   }
 }
 
-module.exports = { getStandings, getBrackets };
+module.exports = { getStandings, getBrackets, getStandingsSeasons };

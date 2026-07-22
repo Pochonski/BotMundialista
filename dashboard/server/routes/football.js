@@ -4,9 +4,12 @@ const standingController = require('../controllers/standingController');
 const historyController = require('../controllers/historyController');
 const statsController = require('../controllers/statsController');
 const trendController = require('../controllers/trendController');
+const trendDetailController = require('../controllers/trendDetailController');
 const newsController = require('../controllers/newsController');
 const athleteController = require('../controllers/athleteController');
 const teamController = require('../controllers/teamController');
+const teamEnhancementsController = require('../controllers/teamEnhancementsController');
+const transfersController = require('../controllers/transfersController');
 const infoController = require('../controllers/infoController');
 
 const router = Router();
@@ -27,6 +30,7 @@ router.get('/matches/:id/timeline', matchController.getMatchTimeline);
 router.get('/matches/:id/suggestions', matchController.getMatchSuggestions);
 
 // Standing routes
+router.get('/standings/seasons', standingController.getStandingsSeasons);
 router.get('/standings', standingController.getStandings);
 router.get('/brackets', standingController.getBrackets);
 
@@ -46,6 +50,7 @@ router.get('/stats/team-of-week', statsController.getTeamOfWeek);
 
 // Trends route
 router.get('/trends', trendController.getCompetitionTrends);
+router.get('/trends/details', trendDetailController.getTrendDetails);
 
 // News routes
 router.get('/news', newsController.getNews);
@@ -61,6 +66,10 @@ router.get('/athletes/:id/transfers', athleteController.getAthleteTransfers);
 // Team routes
 router.get('/teams', teamController.getTeams);
 router.get('/teams/:id', teamController.getTeamById);
+router.get('/teams/:id/info', teamEnhancementsController.getTeamInfo);
+router.get('/teams/:id/recent-form', teamEnhancementsController.getTeamRecentForm);
+router.get('/teams/:id/upcoming', teamEnhancementsController.getTeamUpcoming);
+router.get('/teams/:id/recent-matches', teamEnhancementsController.getTeamRecentMatches);
 router.get('/teams/:id/matches', teamController.getTeamMatches);
 
 // Info routes
@@ -69,8 +78,13 @@ router.get('/tournament-info', infoController.getTournamentInfo);
 
 // Competition catalog (multi-comp)
 router.get('/competitions/featured', infoController.getFeaturedCompetitions);
+router.get('/competitions/:id/transfers/summary', transfersController.getCompetitionTransfersSummary);
+router.get('/competitions/:id/transfers', transfersController.getCompetitionTransfers);
 router.get('/competitions/:id/seasons', infoController.getCompetitionSeasons);
 router.get('/competitions/:id', infoController.getCompetitionDetail);
 router.get('/competitions', infoController.getCompetitions);
+
+// Suggestions (cached per competition)
+router.get('/suggestions', transfersController.getGameSuggestions);
 
 module.exports = router;

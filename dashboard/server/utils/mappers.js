@@ -257,6 +257,32 @@ function transformStandingRow(r, competitorId) {
     return 'L';
   }).filter(Boolean);
 
+  // nextMatch: trae el próximo partido del upstream con home/away.
+  // Si este equipo es home, opponent = away; si away, opponent = home.
+  let nextMatch;
+  if (r.nextMatch?.id) {
+    const home = r.nextMatch.homeCompetitor;
+    const away = r.nextMatch.awayCompetitor;
+    const isHome = home?.id === competitorId;
+    const opp = isHome ? away : home;
+    if (opp) {
+      nextMatch = {
+        id: r.nextMatch.id,
+        startTime: r.nextMatch.startTime,
+        isHome,
+        roundNum: r.nextMatch.roundNum,
+        competitionDisplayName: r.nextMatch.competitionDisplayName,
+        opponent: {
+          id: opp.id,
+          name: opp.name || '',
+          badgeUrl: opp.id
+            ? images.getTeamBadgeUrl(opp.id, opp.imageVersion || 1)
+            : null,
+        },
+      };
+    }
+  }
+
   return {
     position: r.position || 0,
     team: {
@@ -273,6 +299,9 @@ function transformStandingRow(r, competitorId) {
     goalDiff: r.ratio != null ? r.ratio : ((r.for || 0) - (r.against || 0)),
     points: r.points || 0,
     recentForm: form,
+    trend: typeof r.trend === 'number' ? r.trend : null,
+    hasPointsDeduction: r.hasPointsDeduction === true,
+    nextMatch,
   };
 }
 

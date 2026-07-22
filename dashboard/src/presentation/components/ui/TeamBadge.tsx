@@ -1,7 +1,7 @@
 import { memo, useState } from 'react'
 
 interface TeamBadgeProps {
-  src?: string
+  src?: string | null
   name?: string
   size?: 'sm' | 'md' | 'lg'
 }

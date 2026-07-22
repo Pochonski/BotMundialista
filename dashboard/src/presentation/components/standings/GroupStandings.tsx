@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom'
 import type { StandingGroup } from '@/domain/entities/Standing'
 import { TeamBadge } from '@/presentation/components/ui/TeamBadge'
 import { FormDot } from '@/presentation/components/ui/FormDot'
@@ -7,7 +8,18 @@ interface GroupStandingsProps {
   hideHeader?: boolean
 }
 
+function formatMatchTime(iso?: string): string {
+  if (!iso) return ''
+  try {
+    return new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+  } catch {
+    return ''
+  }
+}
+
 export function GroupStandings({ groups, hideHeader }: GroupStandingsProps) {
+  const navigate = useNavigate()
+
   if (groups.length === 0) {
     return (
       <div className="bg-bg-card rounded-xl p-6 text-center">
@@ -22,7 +34,14 @@ export function GroupStandings({ groups, hideHeader }: GroupStandingsProps) {
         <div key={group.name} className="bg-bg-card border-border-card overflow-hidden rounded-xl border">
           {!hideHeader && (
             <div className="border-border-card border-b px-4 py-3">
-              <h3 className="font-display text-text-primary text-lg font-semibold">{group.name}</h3>
+              <h3 className="font-display text-text-primary text-lg font-semibold">
+                {group.displayName || group.name}
+              </h3>
+              {group.isCurrentStage === false && (
+                <p className="font-body text-text-dim mt-0.5 text-[11px] uppercase tracking-wider">
+                  Etapa no actual
+                </p>
+              )}
             </div>
           )}
 
@@ -63,20 +82,46 @@ export function GroupStandings({ groups, hideHeader }: GroupStandingsProps) {
                   <th className="text-text-dim font-body hidden px-3 py-2 text-center text-[11px] font-medium tracking-wider uppercase sm:table-cell">
                     Forma
                   </th>
+                  <th className="text-text-dim font-body hidden px-3 py-2 text-center text-[11px] font-medium tracking-wider uppercase lg:table-cell">
+                    Próx.
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {group.rows.map((row) => (
                   <tr
                     key={row.position}
-                    className="border-border-card/50 hover:bg-bg-elevated/30 border-b transition-colors"
+                    onClick={() => navigate(`/equipo/${row.team.id}`)}
+                    className="border-border-card/50 hover:bg-bg-elevated/30 cursor-pointer border-b transition-colors"
                   >
-                    <td className="text-text-muted px-3 py-2.5 font-mono text-xs">{row.position}</td>
+                    <td className="text-text-muted px-3 py-2.5 font-mono text-xs">
+                      <span className="flex items-center gap-1">
+                        {row.position}
+                        {row.trend != null && row.trend !== 0 && (
+                          <span
+                            className={`font-mono text-[10px] ${
+                              row.trend > 0 ? 'text-accent-green' : 'text-accent-red'
+                            }`}
+                            title={`${row.trend > 0 ? '↑' : '↓'} ${Math.abs(row.trend)}`}
+                          >
+                            {row.trend > 0 ? '↑' : '↓'}
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2">
-                        <TeamBadge src={row.team.badgeUrl} name={row.team.name} size="sm" />
+                        <TeamBadge src={row.team.badgeUrl ?? null} name={row.team.name} size="sm" />
                         <span className="font-body text-text-primary max-w-[120px] truncate text-sm font-medium sm:max-w-none">
                           {row.team.name}
+                          {row.hasPointsDeduction && (
+                            <span
+                              className="font-body ml-1 text-[10px] text-accent-red"
+                              title="Deducción de puntos"
+                            >
+                              *
+                            </span>
+                          )}
                         </span>
                       </div>
                     </td>
@@ -119,6 +164,36 @@ export function GroupStandings({ groups, hideHeader }: GroupStandingsProps) {
                           <FormDot key={i} result={result} />
                         ))}
                       </div>
+                    </td>
+                    <td className="hidden px-3 py-2.5 lg:table-cell">
+                      {row.nextMatch ? (
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation()
+                            navigate(`/partido/${row.nextMatch!.id}`)
+                          }}
+                          className="font-body text-text-muted hover:text-accent-gold flex items-center gap-1.5 text-xs transition-colors"
+                          title={`${row.nextMatch.isHome ? 'vs' : '@'} ${row.nextMatch.opponent?.name} · J${row.nextMatch.roundNum ?? '?'}`}
+                        >
+                          <span className="text-text-dim font-mono">
+                            {row.nextMatch.isHome ? 'vs' : '@'}
+                          </span>
+                          <TeamBadge
+                            src={row.nextMatch.opponent?.badgeUrl ?? null}
+                            name={row.nextMatch.opponent?.name ?? '?'}
+                            size="sm"
+                          />
+                          <span className="font-body text-text-primary max-w-[80px] truncate text-xs">
+                            {row.nextMatch.opponent?.name}
+                          </span>
+                          <span className="text-text-dim font-mono text-[10px]">
+                            {formatMatchTime(row.nextMatch.startTime)}
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="font-body text-text-dim text-xs">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

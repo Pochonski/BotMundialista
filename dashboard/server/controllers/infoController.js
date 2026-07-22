@@ -140,6 +140,7 @@ async function getCompetitionDetail(req, res, next) {
         return res.json({
           ...comp,
           upstream: c,
+          hasTransfers: !!c.hasTransfers,
           seasons: c.seasons || [],
         });
       }
@@ -153,6 +154,7 @@ async function getCompetitionDetail(req, res, next) {
         return res.json({
           ...comp,
           upstream: c,
+          hasTransfers: !!c.hasTransfers,
           seasons: c.seasons || [],
         });
       }

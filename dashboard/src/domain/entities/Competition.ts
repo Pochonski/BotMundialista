@@ -13,6 +13,7 @@ export interface Competition {
   hasBrackets: boolean
   hasGroups: boolean
   hasHistory: boolean
+  hasTransfers?: boolean
 }
 
 export interface CompetitionDetail extends Competition {

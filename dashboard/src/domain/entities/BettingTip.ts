@@ -1,7 +1,10 @@
 export interface Trend {
+  id?: number
   text: string
   percentage: number
   betCTA?: string
+  cause?: string
+  isTop?: boolean
   lineTypeId: number
   gameId?: number
   competitionId?: number

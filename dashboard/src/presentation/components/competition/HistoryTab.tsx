@@ -44,7 +44,7 @@ function AccordionCard({ edition, isBackToBack }: { edition: HistoryEdition; isB
             <div className="ring-accent-gold/30 shrink-0 rounded-full ring-2">
               <TeamBadge src={edition.champion.badgeUrl} name={edition.champion.name} size="sm" />
             </div>
-            <span className="font-body text-accent-gold max-w-[72px] shrink-0 truncate text-xs font-semibold">
+            <span className="font-body text-accent-gold max-w-[110px] shrink-0 truncate text-xs font-semibold">
               {edition.champion.name}
             </span>
             {scoreText && (
@@ -62,7 +62,7 @@ function AccordionCard({ edition, isBackToBack }: { edition: HistoryEdition; isB
                 <div className="shrink-0 rounded-full">
                   <TeamBadge src={edition.runnerUp.badgeUrl} name={edition.runnerUp.name} size="sm" />
                 </div>
-                <span className="font-body text-text-muted max-w-[72px] shrink-0 truncate text-xs">
+                <span className="font-body text-text-muted max-w-[110px] shrink-0 truncate text-xs">
                   {edition.runnerUp.name}
                 </span>
               </>

@@ -86,7 +86,7 @@ export function HistoricalMatchStatsModal({ seasonNum, onClose }: Props) {
         role="dialog"
         aria-modal="true"
         aria-label="Estadísticas históricas del partido"
-        className="bg-bg-card border-border-card animate-fade-in-up max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border"
+        className="bg-bg-card border-border-card animate-fade-in-up max-h-[85dvh] w-full max-w-2xl overflow-y-auto rounded-xl border"
       >
         {/* Header */}
         <div className="border-border-card/50 flex items-center justify-between border-b px-5 py-4">
@@ -102,7 +102,7 @@ export function HistoricalMatchStatsModal({ seasonNum, onClose }: Props) {
           </div>
           <button
             onClick={onClose}
-            className="hover:bg-bg-elevated text-text-muted hover:text-text-primary focus-visible rounded-lg p-1.5 transition-colors"
+            className="hover:bg-bg-elevated text-text-muted hover:text-text-primary focus-visible -mr-2 rounded-lg p-2.5 transition-colors"
             aria-label="Cerrar"
           >
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2">

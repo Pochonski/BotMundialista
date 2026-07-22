@@ -115,13 +115,7 @@ export function DashboardPage() {
       )}
 
       <section aria-label="Partido destacado" ref={heroRef}>
-        {featuredLoading ? (
-          <div className="px-4 py-6 sm:py-8 md:py-12">
-            <HeroSkeleton />
-          </div>
-        ) : featuredGame ? (
-          <HeroMatch game={featuredGame} />
-        ) : null}
+        {featuredLoading ? <HeroSkeleton /> : featuredGame ? <HeroMatch game={featuredGame} /> : null}
       </section>
 
       {liveGames.length > 0 && (
@@ -154,23 +148,26 @@ export function DashboardPage() {
 
       {/* Match Grid */}
       <div className="mt-6 px-4">
-        <div className="mb-3 flex items-center justify-between">
+        {/* Header: en mobile, heading y link "Análisis" arriba, filtros abajo
+            en su propia fila (no inline). En desktop, todo en una línea. */}
+        <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="font-display text-text-primary text-lg font-semibold">Partidos</h2>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/analisis')}
-              className="font-body text-accent-blue hover:text-accent-blue/80 text-xs transition-colors"
-            >
-              Análisis →
-            </button>
-            <MatchFilterBar
-              active={filter}
-              counts={filterCounts}
-              onChange={setFilter}
-              dateOffset={dateOffset}
-              onDateChange={setDateOffset}
-            />
-          </div>
+          <button
+            onClick={() => navigate('/analisis')}
+            className="font-body text-accent-blue hover:text-accent-blue/80 focus-visible rounded px-1 py-0.5 text-xs transition-colors"
+          >
+            Análisis →
+          </button>
+        </div>
+
+        <div className="mb-4">
+          <MatchFilterBar
+            active={filter}
+            counts={filterCounts}
+            onChange={setFilter}
+            dateOffset={dateOffset}
+            onDateChange={setDateOffset}
+          />
         </div>
 
         {gamesLoading ? (

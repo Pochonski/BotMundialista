@@ -73,7 +73,7 @@ export function BracketTree() {
   }
 
   return (
-    <div className="overflow-x-auto pb-4">
+    <div className="scroll-fade-right no-scrollbar overflow-x-auto pb-4">
       <div className="flex min-w-[800px] gap-6">
         {stages.map((stage, si) => {
           const totalGames = stage.games.length
@@ -111,7 +111,7 @@ export function BracketTree() {
                                 {game.score.home}–{game.score.away}
                               </span>
                             ) : game.startTime ? (
-                              <span className="text-text-dim block font-mono text-[9px] leading-tight">
+                              <span className="text-text-dim block font-mono text-[10px] leading-tight">
                                 {formatTime(game.startTime)}
                               </span>
                             ) : (

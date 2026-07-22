@@ -6,7 +6,7 @@ import { useFocusTrap } from '@/presentation/hooks/useFocusTrap'
 
 const repo = DiContainer.getInstance().getAthleteRepository()
 
-export function PlayerSearch() {
+export function PlayerSearch({ onSelect }: { onSelect?: () => void } = {}) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Athlete[]>([])
   const [open, setOpen] = useState(false)
@@ -50,8 +50,9 @@ export function PlayerSearch() {
       setOpen(false)
       setQuery('')
       navigate(`/player/${athlete.id}`)
+      onSelect?.()
     },
-    [navigate]
+    [navigate, onSelect]
   )
 
   const handleKeyDown = useCallback(

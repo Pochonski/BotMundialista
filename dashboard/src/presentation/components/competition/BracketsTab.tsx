@@ -101,11 +101,14 @@ export function BracketsTab() {
 
   return (
     <div>
+      {/* Toggle vista árbol: solo se ofrece en md+ (el árbol horizontal es
+          ilegible en mobile). El default mobile es vista lista. */}
       <div className="mb-4 flex items-center justify-end">
         <button
           onClick={() => setTreeView(!treeView)}
-          className="font-body text-accent-blue hover:text-accent-blue/80 focus-visible text-xs transition-colors"
+          className="font-body text-accent-blue hover:text-accent-blue/80 focus-visible hidden text-xs transition-colors md:block"
           aria-pressed={treeView}
+          title="La vista árbol requiere pantalla grande"
         >
           {treeView ? 'Vista lista' : 'Vista árbol'}
         </button>
@@ -122,7 +125,7 @@ export function BracketsTab() {
                 <span className="flex items-center gap-2">
                   {stage.name}
                   {stage.games.length > 0 && (
-                    <span className="text-text-dim font-mono text-[10px] font-normal tracking-wider uppercase">
+                    <span className="text-text-dim font-mono text-[11px] font-normal tracking-wider uppercase">
                       ({stage.games.length} partido{stage.games.length !== 1 ? 's' : ''})
                     </span>
                   )}
@@ -152,11 +155,11 @@ export function BracketsTab() {
                           {game.score.home}–{game.score.away}
                         </span>
                       ) : game.startTime ? (
-                        <span className="text-text-dim text-right font-mono text-[10px] leading-tight">
+                        <span className="text-text-dim text-right font-mono text-[11px] leading-tight">
                           {formatTime(game.startTime)}
                         </span>
                       ) : (
-                        <span className="text-text-dim font-mono text-[10px]">VS</span>
+                        <span className="text-text-dim font-mono text-[11px]">VS</span>
                       )}
                     </div>
                     <div className="flex min-w-0 flex-1 items-center justify-end gap-2">

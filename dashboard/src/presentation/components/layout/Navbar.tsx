@@ -13,7 +13,7 @@ const NAV_ITEMS = [
 export function Navbar() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [mobileOpen, setMobileOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   const isActive = (item: (typeof NAV_ITEMS)[number]) => {
     if (item.route === '/') return location.pathname === '/'
@@ -22,19 +22,25 @@ export function Navbar() {
 
   const handleNavigate = (item: (typeof NAV_ITEMS)[number]) => {
     navigate(item.route)
-    setMobileOpen(false)
   }
 
   return (
     <header className="bg-bg-base/80 border-border-card fixed top-0 right-0 left-0 z-50 border-b backdrop-blur-lg">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
-        <button onClick={() => navigate('/')} className="focus-visible flex shrink-0 items-center gap-2">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-2 px-4">
+        <button
+          onClick={() => navigate('/')}
+          className="focus-visible flex shrink-0 items-center gap-2"
+          aria-label="ScoreHub inicio"
+        >
           <span className="text-accent-gold font-display text-2xl font-bold tracking-wide">SCOREHUB</span>
-          <span className="text-text-muted font-body hidden text-xs font-light sm:inline">Mundial 2026</span>
+          <span className="text-text-muted font-body hidden text-xs font-light sm:inline">
+            Mundial 2026
+          </span>
         </button>
 
+        {/* Navegación desktop (md+). En mobile se usa el BottomNav. */}
         <nav
-          className="hidden items-center gap-1 md:flex"
+          className="hidden flex-1 items-center justify-center gap-1 md:flex"
           role="navigation"
           aria-label="Secciones principales"
         >
@@ -44,8 +50,8 @@ export function Navbar() {
               onClick={() => handleNavigate(item)}
               className={`font-body focus-visible rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 ${
                 isActive(item)
-                  ? 'text-accent-blue bg-accent-blue/10'
-                  : 'text-text-muted hover:text-text-primary hover:bg-bg-card'
+                  ? 'bg-accent-blue/10 text-accent-blue'
+                  : 'text-text-muted hover:bg-bg-card hover:text-text-primary'
               }`}
               aria-current={isActive(item) ? 'page' : undefined}
             >
@@ -54,50 +60,38 @@ export function Navbar() {
           ))}
         </nav>
 
-        <div className="hidden md:block">
+        {/* PlayerSearch: desktop inline, mobile via icon toggle. */}
+        <div className="hidden shrink-0 md:block">
           <PlayerSearch />
         </div>
 
+        {/* Botón search en mobile: abre PlayerSearch debajo del header. */}
         <button
-          className="hover:bg-bg-card focus-visible rounded-lg p-2 md:hidden"
-          onClick={() => setMobileOpen(!mobileOpen)}
-          aria-label={mobileOpen ? 'Cerrar menú' : 'Abrir menú'}
-          aria-expanded={mobileOpen}
+          onClick={() => setSearchOpen(!searchOpen)}
+          className="focus-visible hover:bg-bg-card -mr-2 rounded-lg p-2.5 md:hidden"
+          aria-label={searchOpen ? 'Cerrar búsqueda' : 'Buscar jugador'}
+          aria-expanded={searchOpen}
         >
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
-            {mobileOpen ? <path d="M5 5l10 10M15 5L5 15" /> : <path d="M3 5h14M3 10h14M3 15h14" />}
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <circle cx="9" cy="9" r="6" />
+            <path d="M14 14l4 4" strokeLinecap="round" />
           </svg>
         </button>
       </div>
 
-      {mobileOpen && (
-        <>
-          <div className="fixed inset-0 z-40 bg-black/60 md:hidden" onClick={() => setMobileOpen(false)} />
-          <nav
-            className="bg-bg-card border-border-card animate-fade-in-up fixed top-14 right-0 left-0 z-50 border-b md:hidden"
-            role="navigation"
-            aria-label="Secciones principales"
-          >
-            <div className="space-y-3 p-4">
-              <PlayerSearch />
-              <div className="space-y-1">
-                {NAV_ITEMS.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => handleNavigate(item)}
-                    className={`font-body focus-visible w-full rounded-lg px-4 py-3 text-left text-sm font-medium transition-all duration-200 ${
-                      isActive(item)
-                        ? 'text-accent-blue bg-accent-blue/10'
-                        : 'text-text-muted hover:text-text-primary hover:bg-bg-elevated'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </nav>
-        </>
+      {/* Panel de búsqueda desplegable en mobile. */}
+      {searchOpen && (
+        <div className="bg-bg-card border-border-card animate-fade-in-up border-b px-4 py-3 md:hidden">
+          <PlayerSearch onSelect={() => setSearchOpen(false)} />
+        </div>
       )}
     </header>
   )

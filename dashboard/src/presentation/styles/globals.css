@@ -10,7 +10,8 @@
   --color-accent-red: #ef4444;
   --color-text-primary: #f1f5f9;
   --color-text-muted: #8899aa;
-  --color-text-dim: #64748b;
+  /* Antes #64748b (3.62:1 en bg-card, fallaba AA). Subido a ~4.6:1. */
+  --color-text-dim: #7888a0;
   --color-border-card: rgba(56, 189, 248, 0.08);
   --color-border-hover: rgba(56, 189, 248, 0.2);
 
@@ -23,9 +24,15 @@ body {
   background-color: var(--color-bg-base);
   color: var(--color-text-primary);
   font-family: var(--font-body);
+  /* dvh respeta la URL bar dinámica de iOS Safari. Fallback a vh. */
   min-height: 100vh;
+  min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Evitar el flash gris de tap highlight en iOS. */
+  -webkit-tap-highlight-color: transparent;
+  /* Prevenir zoom en iOS al enfocar inputs con font-size < 16px. */
+  -webkit-text-size-adjust: 100%;
 }
 
 ::-webkit-scrollbar {
@@ -191,4 +198,54 @@ body {
 
 .skip-link:focus {
   top: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Utilidades mobile-first
+   --------------------------------------------------------------------------
+
+   Convenciones de tipografía en móvil (se verifican en code review):
+   - Piso absoluto: text-[11px] en teléfonos. Nada por debajo.
+   - text-[10px] y text-[9px] solo permitidos en displays grandes (sm+) o
+     en elementos puramente decorativos.
+   - Inputs deben tener font-size >= 16px en mobile para evitar el zoom de iOS.
+   ------------------------------------------------------------------------- */
+
+/* Ocultar scrollbar manteniendo el scroll (tickers, filtros horizontales). */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Fade gradient a los bordes de contenedores con scroll horizontal,
+   como pista visual de que hay más contenido. Se usa con un wrapper
+   que tenga position: relative. */
+.scroll-fade-left::before,
+.scroll-fade-right::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  z-index: 5;
+}
+.scroll-fade-left::before {
+  left: 0;
+  background: linear-gradient(to right, var(--color-bg-base), transparent);
+}
+.scroll-fade-right::after {
+  right: 0;
+  background: linear-gradient(to left, var(--color-bg-base), transparent);
+}
+
+/* Safe area para el bottom nav y el footer en iOS. */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
 }

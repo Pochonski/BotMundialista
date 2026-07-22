@@ -49,17 +49,17 @@ export function CompetitionPage() {
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="mb-8 flex items-center justify-center">
-        <div className="bg-bg-card border-border-card inline-flex items-center gap-1 rounded-xl border p-1">
+      {/* Tabs: scroll horizontal en mobile si no caben, centrado en desktop. */}
+      <div className="mb-8 flex justify-center">
+        <div className="no-scrollbar bg-bg-card border-border-card inline-flex max-w-full gap-1 overflow-x-auto rounded-xl border p-1">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`font-body focus-visible rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${
+              className={`font-body focus-visible shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${
                 activeTab === tab.id
                   ? 'bg-accent-gold/10 text-accent-gold shadow-sm'
-                  : 'text-text-muted hover:text-text-primary hover:bg-bg-elevated/50'
+                  : 'text-text-muted hover:bg-bg-elevated/50 hover:text-text-primary'
               }`}
               aria-current={activeTab === tab.id ? 'page' : undefined}
             >

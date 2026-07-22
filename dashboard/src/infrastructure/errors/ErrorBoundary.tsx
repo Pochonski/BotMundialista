@@ -49,7 +49,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
       }
 
       return (
-        <div className="bg-bg-base flex min-h-screen items-center justify-center">
+        <div className="bg-bg-base flex min-h-dvh items-center justify-center">
           <div className="bg-bg-card border-border-card w-full max-w-md rounded-xl border p-8">
             <div className="text-center">
               <div className="bg-accent-red/10 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full">

@@ -51,7 +51,7 @@ export const MatchCard = memo(function MatchCard({ game, onSelect, compact = fal
     <div
       className={`bg-bg-card border-border-card hover:border-border-hover focus-visible cursor-pointer rounded-xl border transition-all duration-200 ${
         isLive ? 'ring-accent-live/20 ring-1' : ''
-      } ${compact ? 'min-w-[160px] p-3' : 'p-4'}`}
+      } ${compact ? 'min-w-[150px] p-2.5' : 'p-4'}`}
       onClick={() => onSelect?.(game)}
       onKeyDown={handleKeyDown}
       tabIndex={0}
@@ -61,16 +61,16 @@ export const MatchCard = memo(function MatchCard({ game, onSelect, compact = fal
       <div className="mb-2 flex items-center justify-between">
         <LiveIndicator status={game.status} minute={game.minute} />
         {game.stage !== 'Fase de grupos' && game.stage ? (
-          <span className="text-text-dim font-body text-[10px] tracking-wider uppercase">{game.stage}</span>
+          <span className="text-text-dim font-body text-[11px] tracking-wider uppercase">{game.stage}</span>
         ) : null}
-        {isFinished && hasScore && <span className="text-text-dim font-body text-[10px]">Final</span>}
+        {isFinished && hasScore && <span className="text-text-dim font-body text-[11px]">Final</span>}
       </div>
 
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <TeamBadge src={game.homeTeam.badgeUrl} name={game.homeTeam.name} size={compact ? 'sm' : 'md'} />
+          <TeamBadge src={game.homeTeam.badgeUrl} name={game.homeTeam.name} size="sm" />
           <span
-            className={`font-body text-text-primary truncate ${compact ? 'text-xs' : 'text-sm font-medium'}`}
+            className={`font-body text-text-primary truncate ${compact ? 'text-[11px]' : 'text-sm font-medium'}`}
           >
             {game.homeTeam.name}
           </span>
@@ -78,19 +78,19 @@ export const MatchCard = memo(function MatchCard({ game, onSelect, compact = fal
 
         <div
           className={`font-display text-text-primary flex shrink-0 items-center gap-1 font-bold ${
-            compact ? 'text-2xl' : 'text-3xl'
+            compact ? 'text-xl' : 'text-2xl sm:text-3xl'
           }`}
         >
           {game.status === 'upcoming' && !hasScore ? (
             <span
-              className={`font-body text-text-dim font-semibold ${compact ? 'text-xs' : 'text-sm'} tracking-widest`}
+              className={`font-body text-text-dim font-semibold ${compact ? 'text-[11px]' : 'text-sm'} tracking-widest`}
             >
               VS
             </span>
           ) : (
             <>
               <span className={animate ? 'score-animate' : ''}>{hasScore ? game.homeTeam.score : '-'}</span>
-              <span className={compact ? 'text-base' : 'text-xl'}>:</span>
+              <span className={compact ? 'text-sm' : 'text-lg sm:text-xl'}>:</span>
               <span className={animate ? 'score-animate' : ''}>{hasScore ? game.awayTeam.score : '-'}</span>
             </>
           )}
@@ -98,11 +98,11 @@ export const MatchCard = memo(function MatchCard({ game, onSelect, compact = fal
 
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
           <span
-            className={`font-body text-text-primary truncate ${compact ? 'text-xs' : 'text-sm font-medium'}`}
+            className={`font-body text-text-primary truncate ${compact ? 'text-[11px]' : 'text-sm font-medium'}`}
           >
             {game.awayTeam.name}
           </span>
-          <TeamBadge src={game.awayTeam.badgeUrl} name={game.awayTeam.name} size={compact ? 'sm' : 'md'} />
+          <TeamBadge src={game.awayTeam.badgeUrl} name={game.awayTeam.name} size="sm" />
         </div>
       </div>
 

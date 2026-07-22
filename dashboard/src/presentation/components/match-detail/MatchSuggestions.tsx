@@ -24,20 +24,26 @@ export const MatchSuggestions = memo(function MatchSuggestions({ game, suggestio
           const won = isHome ? homeScore > awayScore : awayScore > homeScore
           const drawn = homeScore === awayScore
           return (
-            <div key={i} className="flex items-center justify-between py-1.5 text-xs">
+            // En mobile apilamos; en sm+ row justify-between como antes.
+            <div
+              key={i}
+              className="flex flex-col gap-1 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:py-1.5"
+            >
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="text-text-dim truncate">{g.stage}</span>
+                <span className="text-text-muted hidden sm:inline">·</span>
+                <span className="font-body text-text-primary max-w-[160px] truncate sm:max-w-[120px]">
+                  vs {opponent.name}
+                </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between gap-2 sm:justify-end">
                 <span
                   className={`font-mono ${won ? 'text-accent-live' : drawn ? 'text-text-muted' : 'text-accent-red'}`}
                 >
                   {isHome ? `${homeScore}-${awayScore}` : `${awayScore}-${homeScore}`}
                 </span>
-                <span className="text-text-muted">vs</span>
-                <span className="font-body text-text-primary max-w-[120px] truncate">{opponent.name}</span>
+                <span className="text-text-dim">{formatShortDate(g.startTime)}</span>
               </div>
-              <span className="text-text-dim ml-2">{formatShortDate(g.startTime)}</span>
             </div>
           )
         })}

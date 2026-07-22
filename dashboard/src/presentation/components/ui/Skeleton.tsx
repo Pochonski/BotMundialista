@@ -40,15 +40,15 @@ export function MatchCardSkeleton() {
 }
 
 export function HeroSkeleton() {
+  // Padding alineado con el HeroMatch real (py-6 sm:py-8) para evitar layout shift.
   return (
-    <div className="bg-bg-card skeleton space-y-6 rounded-2xl p-8">
-      <div className="flex items-center justify-center gap-8">
-        <div className="bg-bg-elevated h-20 w-20 rounded-full" />
-        <div className="bg-bg-elevated h-16 w-24 rounded" />
-        <div className="bg-bg-elevated h-20 w-20 rounded-full" />
+    <div className="space-y-6 px-4 py-6 sm:py-8">
+      <div className="bg-bg-card skeleton flex items-center justify-center gap-4 rounded-2xl py-8 sm:gap-8 sm:py-12">
+        <div className="bg-bg-elevated h-16 w-16 rounded-full sm:h-20 sm:w-20" />
+        <div className="bg-bg-elevated h-12 w-20 rounded sm:h-16 sm:w-24" />
+        <div className="bg-bg-elevated h-16 w-16 rounded-full sm:h-20 sm:w-20" />
       </div>
       <div className="flex justify-center gap-4">
-        <div className="bg-bg-elevated h-4 w-24 rounded" />
         <div className="bg-bg-elevated h-4 w-24 rounded" />
         <div className="bg-bg-elevated h-4 w-24 rounded" />
       </div>

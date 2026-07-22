@@ -49,7 +49,7 @@ export function MatchDetailPage() {
       <MatchScoreCard game={game} />
       <MatchStatsTable stats={stats} />
       <MatchLineups game={game} lineups={lineups} />
-      <MatchTimeline timeline={timeline} />
+      <MatchTimeline timeline={timeline} homeTeamId={game.homeTeam.id} awayTeamId={game.awayTeam.id} />
       <MatchPredictions predictions={predictions} />
       <MatchTips tips={tips} />
       <MatchNews news={news} />

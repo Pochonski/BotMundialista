@@ -3,43 +3,61 @@ import type { MatchEvent } from '@/domain/entities/Game'
 
 interface MatchTimelineProps {
   timeline: MatchEvent[]
+  homeTeamId?: number
+  awayTeamId?: number
 }
 
-const EVENT_ICONS: Record<MatchEvent['type'], { icon: string; label: string }> = {
-  goal: { icon: '⚽', label: 'Gol' },
-  yellow_card: { icon: '🟨', label: 'Tarjeta amarilla' },
-  red_card: { icon: '🟥', label: 'Tarjeta roja' },
-  substitution: { icon: '🔄', label: 'Sustitución' },
-  penalty: { icon: '⚽', label: 'Penalti' },
+function EventIcon({ type }: { type: MatchEvent['type'] }) {
+  switch (type) {
+    case 'goal':
+      return <span className="text-base" aria-hidden>⚽</span>
+    case 'yellow_card':
+      return <span className="inline-block h-3.5 w-2.5 rounded-sm bg-yellow-400" aria-label="Tarjeta amarilla" />
+    case 'red_card':
+      return <span className="inline-block h-3.5 w-2.5 rounded-sm bg-red-500" aria-label="Tarjeta roja" />
+    case 'substitution':
+      return <span className="text-sm" aria-hidden>🔁</span>
+    default:
+      return null
+  }
 }
 
-export const MatchTimeline = memo(function MatchTimeline({ timeline }: MatchTimelineProps) {
-  if (timeline.length === 0) return null
+export const MatchTimeline = memo(function MatchTimeline({ timeline, homeTeamId, awayTeamId }: MatchTimelineProps) {
+  if (!timeline || timeline.length === 0) return null
 
   return (
-    <div className="bg-bg-card border-border-card overflow-hidden rounded-xl border">
-      <div className="border-border-card/50 border-b px-5 py-4">
-        <h3 className="font-body text-text-dim text-[10px] tracking-wider uppercase">Eventos</h3>
+    <div className="overflow-hidden rounded-xl border border-border-card bg-bg-card">
+      <div className="border-b border-border-card/50 px-5 py-4">
+        <h3 className="text-[11px] uppercase tracking-wider text-text-dim">Eventos del Partido</h3>
       </div>
       <div className="p-5">
-        <div className="space-y-2">
+        <ul className="space-y-1">
           {timeline.map((ev, i) => {
-            const meta = EVENT_ICONS[ev.type] ?? { icon: '🔄', label: 'Evento' }
+            const isAway = ev.teamId === awayTeamId && ev.teamId !== homeTeamId
+            const minute = Math.floor(ev.minute)
             return (
-              <div key={i} className="flex items-center gap-3 text-sm">
-                <span className="text-text-dim w-8 shrink-0 text-right font-mono text-xs">
-                  {ev.minute}&apos;
+              <li
+                key={i}
+                className={`flex items-center gap-3 py-1.5 text-sm ${
+                  isAway ? 'flex-row-reverse text-right' : ''
+                }`}
+              >
+                {/* Minuto */}
+                <span className={`w-10 shrink-0 font-mono text-xs text-text-dim ${isAway ? 'text-left' : 'text-right'}`}>
+                  {minute}'
                 </span>
-                <span role="img" aria-label={meta.label} className="shrink-0 text-xs">
-                  {meta.icon}
+                {/* Icono */}
+                <span className="flex w-5 shrink-0 items-center justify-center">
+                  <EventIcon type={ev.type} />
                 </span>
-                <span className="font-body text-text-primary text-xs">
+                {/* Descripción */}
+                <span className={`flex-1 truncate ${ev.isMajor ? 'font-semibold text-text-primary' : 'text-text-muted'}`}>
                   {ev.description || ev.playerName || ''}
                 </span>
-              </div>
+              </li>
             )
           })}
-        </div>
+        </ul>
       </div>
     </div>
   )

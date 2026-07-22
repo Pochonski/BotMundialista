@@ -413,26 +413,70 @@ async function getMatchPredictions(req, res, next) {
   }
 }
 
+// Mapeo de eventType.id de 365scores a los tipos del frontend.
+const EVENT_TYPE_MAP = {
+  1: 'goal',
+  2: 'yellow_card',
+  3: 'red_card',
+  1000: 'substitution',
+};
+
 async function getMatchTimeline(req, res, next) {
   try {
     const { id } = req.params;
     const gid = Number(id);
 
-    const { rows } = await pool.query('SELECT data FROM game_stats WHERE game_id = $1', [gid]);
-    const liveEvents = rows[0]?.data?.timeline || rows[0]?.data?.events || [];
+    // Los eventos reales (goles, tarjetas, sustituciones) viven en
+    // game_overviews.game.events, NO en chartEvents (que es un shot map).
+    const { rows: ovRows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
+    let rawEvents = ovRows[0]?.data?.game?.events || [];
 
-    const { rows: overviewRows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
-    const chartEvents = overviewRows[0]?.data?.game?.chartEvents?.events || [];
+    // Fallback a la API en vivo si no hay cache.
+    if (!rawEvents.length) {
+      try {
+        const overview = await scores365.getGameOverview(gid);
+        rawEvents = overview?.game?.events || [];
+      } catch (_) { /* fallthrough */ }
+    }
 
-    const events = liveEvents.length ? liveEvents : chartEvents;
-    const data = events.map(e => ({
-      minute: e.minute || e.matchTime || e.time,
-      type: e.type === 1 ? 'goal' : e.type === 2 ? 'yellow_card' : e.type === 3 ? 'red_card' : (e.subType ? 'shot' : 'event'),
-      teamId: e.teamId || e.competitorId,
-      playerId: e.playerId,
-      playerName: e.playerName || e.player?.name,
-      description: e.description || e.text || e.goalDescription,
-    }));
+    if (!rawEvents.length) return res.json([]);
+
+    // Resolver nombres de jugadores desde la tabla athletes.
+    const playerIds = [...new Set(rawEvents.flatMap(e => [e.playerId, ...(e.extraPlayers || [])]).filter(Boolean))];
+    const playerNameMap = {};
+    if (playerIds.length) {
+      const { rows: playerRows } = await pool.query(
+        `SELECT id, data->>'name' as name FROM athletes WHERE id = ANY($1::bigint[])`,
+        [playerIds]
+      );
+      for (const r of playerRows) playerNameMap[r.id] = r.name;
+    }
+
+    const data = rawEvents
+      .map(e => {
+        const type = EVENT_TYPE_MAP[e.eventType?.id] || 'event';
+        const playerName = playerNameMap[e.playerId] || '';
+        // Para sustituciones, mostrar quién entra (extraPlayers[0]).
+        const subIn = e.extraPlayers?.[0];
+        const subInName = subIn ? playerNameMap[subIn] : '';
+        let description = '';
+        if (type === 'substitution' && subInName) {
+          description = `${playerName} ➡️ ${subInName}`;
+        } else if (playerName) {
+          description = playerName;
+        }
+        return {
+          minute: e.gameTime ?? 0,
+          type,
+          teamId: e.competitorId,
+          playerId: e.playerId,
+          playerName,
+          description,
+          isMajor: Boolean(e.isMajor),
+        };
+      })
+      .sort((a, b) => a.minute - b.minute);
+
     res.json(data);
   } catch (err) {
     next(err);

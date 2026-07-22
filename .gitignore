@@ -50,3 +50,11 @@ database/.conversation-context.json
 database/.conversation-context.json.tmp
 .vercel
 .env*
+
+# Supabase CLI scratch dir (contains project ref, pooler URL — sensitive metadata)
+supabase/.temp/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+dashboard/tsconfig.app.tsbuildinfo
+dashboard/tsconfig.tsbuildinfo

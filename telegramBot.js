@@ -4,6 +4,9 @@ const http = require('http');
 const https = require('https');
 const path = require('path');
 const fs = require('fs');
+const { install: installProcessGuard } = require('./utils/processGuard');
+installProcessGuard({ name: 'telegramBot' });
+const { isAdminEnabled, requireAdmin } = require('./utils/adminAuth');
 const messageHandler = require('./handlers/messageHandler');
 const matchSearch = require('./services/matchSearch');
 const scores365 = require('./services/scores365Service');
@@ -82,6 +85,22 @@ async function handleAdminRoute(req, res, url) {
   const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost'}`);
   const pathname = parsedUrl.pathname;
 
+  // Gate de auth: si ADMIN_TOKEN no está configurado, admin deshabilitado.
+  if (!isAdminEnabled()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Admin deshabilitado. Configure ADMIN_TOKEN.' }));
+    return;
+  }
+  // Exigir token válido (Bearer o cookie) para TODO /admin/*.
+  if (!requireAdmin(req)) {
+    res.writeHead(401, {
+      'Content-Type': 'application/json',
+      'WWW-Authenticate': 'Bearer realm="scorehub-admin"',
+    });
+    res.end(JSON.stringify({ error: 'No autorizado. Provide Authorization: Bearer <ADMIN_TOKEN>.' }));
+    return;
+  }
+
   // Servir index.html para /admin y /admin/
   if (pathname === '/admin' || pathname === '/admin/') {
     const indexPath = path.join(__dirname, 'admin', 'public', 'index.html');
@@ -116,8 +135,9 @@ async function handleAdminRoute(req, res, url) {
           res.writeHead(200);
           res.end(JSON.stringify({ success: true }));
         } catch (error) {
+          console.error('[admin] rename error:', error.message);
           res.writeHead(500);
-          res.end(JSON.stringify({ error: error.message }));
+          res.end(JSON.stringify({ error: 'Error al renombrar usuario' }));
         }
       });
       return;
@@ -281,6 +301,15 @@ async function telegramRequest(method, params = {}, timeoutMs = 60000) {
         try {
           const parsed = JSON.parse(data);
           if (!parsed.ok) {
+            // Telegram 429 Too Many Requests: exponer retry_after para backoff
+            if (parsed.error_code === 429 && parsed.parameters?.retry_after) {
+              const retryErr = new Error(`Telegram 429: retry_after ${parsed.parameters.retry_after}s`);
+              retryErr.isRateLimited = true;
+              retryErr.retryAfter = parsed.parameters.retry_after;
+              retryErr.response = parsed;
+              reject(retryErr);
+              return;
+            }
             console.error(`[Telegram API] ${method} falló:`, parsed.description);
           }
           resolve(parsed);
@@ -297,10 +326,10 @@ async function telegramRequest(method, params = {}, timeoutMs = 60000) {
 }
 
 /**
- * Envía un mensaje
+ * Envía un mensaje (con backoff ante 429)
  */
 async function sendMessage(chatId, text, options = {}) {
-  return telegramRequest('sendMessage', {
+  return telegramRequestWithRetry('sendMessage', {
     chat_id: chatId,
     text,
     parse_mode: 'Markdown',
@@ -309,7 +338,7 @@ async function sendMessage(chatId, text, options = {}) {
 }
 
 async function sendPhoto(chatId, photoUrl, caption = '', options = {}) {
-  return telegramRequest('sendPhoto', {
+  return telegramRequestWithRetry('sendPhoto', {
     chat_id: chatId,
     photo: photoUrl,
     caption,
@@ -1704,6 +1733,74 @@ async function processUpdates(updates) {
 }
 
 /**
+ * Envuelve telegramRequest con backoff ante rate-limit (429).
+ * Reintenta respetando retry_after de Telegram.
+ */
+async function telegramRequestWithRetry(method, params = {}, timeoutMs = 60000, attempt = 0) {
+  try {
+    return await telegramRequest(method, params, timeoutMs);
+  } catch (e) {
+    if (e.isRateLimited && attempt < 3) {
+      const wait = (e.retryAfter || 1) * 1000;
+      console.warn(`[Telegram] 429 en ${method}, esperando ${e.retryAfter}s (intento ${attempt + 1})...`);
+      await new Promise((r) => setTimeout(r, wait));
+      return telegramRequestWithRetry(method, params, timeoutMs, attempt + 1);
+    }
+    throw e;
+  }
+}
+
+// ---- Long-polling loop ----
+let polling = false;
+let pollOffset = 0;
+let shouldStop = false;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Un ciclo de getUpdates con long-polling (timeout 30s).
+ */
+async function fetchOnce() {
+  const params = { timeout: 30, allowed_updates: ['message', 'callback_query'] };
+  if (pollOffset) params.offset = pollOffset;
+  try {
+    const updates = await telegramRequest('getUpdates', params, 35000);
+    if (updates.ok && Array.isArray(updates.result) && updates.result.length > 0) {
+      for (const update of updates.result) {
+        try {
+          await handleWebhookUpdate(update);
+        } catch (e) {
+          console.error('[polling] handler error:', e.message);
+        }
+      }
+      // Confirmar procesado: offset = lastUpdateId + 1
+      pollOffset = updates.result[updates.result.length - 1].update_id + 1;
+    }
+    return true;
+  } catch (e) {
+    if (e.isRateLimited) {
+      const wait = (e.retryAfter || 1) * 1000;
+      console.warn(`[polling] 429, esperando ${e.retryAfter}s...`);
+      await sleep(wait);
+    } else {
+      console.error('[polling] getUpdates error:', e.message);
+      await sleep(3000); // backoff fijo ante errores de red
+    }
+    return false;
+  }
+}
+
+/**
+ * Loop de long-polling continuo. Termina solo si shouldStop=true.
+ */
+async function pollingLoop() {
+  while (!shouldStop) {
+    await fetchOnce();
+  }
+  console.log('[polling] loop detenido.');
+}
+
+/**
  * Inicializar bot
  */
 async function init() {
@@ -1719,7 +1816,21 @@ async function init() {
     console.log('⚠️ Modo demo activo (sin base de datos)');
   });
 
-  console.log(`✅ ScoreHub Telegram listo!`);
+  // Asegurar modo long-polling: eliminar webhook si existe (Telegram no permite ambos)
+  try {
+    const wb = await telegramRequest('deleteWebhook', { drop_pending_updates: false });
+    console.log(`[init] deleteWebhook ok=${wb.ok} (${wb.description || 'sin descripción'})`);
+  } catch (e) {
+    console.error('[init] deleteWebhook falló:', e.message);
+  }
+
+  // Iniciar loop de long-polling
+  polling = true;
+  pollingLoop().catch((e) => {
+    console.error('[init] polling loop crashed:', e.message);
+  });
+
+  console.log(`✅ ScoreHub Telegram listo! (long-polling activo)`);
   console.log(`📱 Token: ${TELEGRAM_TOKEN?.substring(0, 10)}...`);
 }
 
@@ -1729,5 +1840,12 @@ init();
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n👋 Apagando bot de Telegram...');
+  shouldStop = true;
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n👋 Apagando bot de Telegram (SIGTERM)...');
+  shouldStop = true;
   process.exit(0);
 });

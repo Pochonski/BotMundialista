@@ -1,6 +1,10 @@
 require('dotenv').config();
 
-const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+// Node 18+ incluye fetch global nativo; no necesitamos node-fetch.
+const fetch = globalThis.fetch;
+if (!fetch) {
+  throw new Error('globalThis.fetch no está disponible. Se requiere Node 18+.');
+}
 const zlib = require('zlib');
 
 const BASE = 'https://webws.365scores.com';
@@ -8,6 +12,7 @@ const TZ = process.env.SCORES365_TIMEZONE || 'America/Costa_Rica';
 const COUNTRY = process.env.SCORES365_USER_COUNTRY || '153';
 const LANG = process.env.SCORES365_LANG || '14';
 const APPTYPE = process.env.SCORES365_APP_TYPE || '5';
+const HTTP_TIMEOUT_MS = parseInt(process.env.SCORES365_HTTP_TIMEOUT_MS || '15000', 10);
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0';
 
@@ -33,6 +38,9 @@ async function get(path, extraQuery = '', baseUrl = BASE) {
   await throttle();
   let res;
   for (let attempt = 0; attempt < 5; attempt++) {
+    // Timeout por intento: AbortController aborta el fetch colgado.
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
     try {
       res = await fetch(url, {
         headers: {
@@ -43,6 +51,7 @@ async function get(path, extraQuery = '', baseUrl = BASE) {
           'Origin': 'https://www.365scores.com',
           'Referer': 'https://www.365scores.com/',
         },
+        signal: ctrl.signal,
       });
       if (res.ok) break;
       if (res.status === 429 || res.status >= 500) {
@@ -52,8 +61,17 @@ async function get(path, extraQuery = '', baseUrl = BASE) {
       }
       break;
     } catch (e) {
-      if (attempt === 4) throw e;
+      // AbortError = timeout; reintentable como cualquier error de red.
+      const isAbort = e.name === 'AbortError';
+      if (attempt === 4) {
+        const err = new Error(`365scores ${isAbort ? 'timeout' : 'network'}: ${path}`);
+        err.status = 0;
+        err.cause = e;
+        throw err;
+      }
       await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    } finally {
+      clearTimeout(timeout);
     }
   }
   if (!res || !res.ok) {
@@ -62,7 +80,8 @@ async function get(path, extraQuery = '', baseUrl = BASE) {
     throw err;
   }
   const enc = res.headers.get('content-encoding');
-  let buf = await res.buffer();
+  // fetch nativo (undici) no tiene .buffer(); usamos .arrayBuffer().
+  let buf = Buffer.from(await res.arrayBuffer());
   if (enc && enc.includes('gzip')) {
     try { buf = zlib.gunzipSync(buf); } catch (_) { /* fallthrough */ }
   } else if (enc && enc.includes('br')) {

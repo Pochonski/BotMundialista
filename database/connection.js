@@ -1,12 +1,24 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 
+// Configuración común al pool: sizing, timeouts y application_name para
+// depurar conexiones desde el lado de la base de datos.
+const COMMON = {
+  max: parseInt(process.env.DB_POOL_MAX || '25', 10),
+  idleTimeoutMillis: 30000,
+  maxUses: 7500, // recicla conexiones viejas para evitar leaks en conexiones largas
+  connectionTimeoutMillis: 10000,
+  statement_timeout: 30000, // aborta queries que excedan 30s
+  query_timeout: 30000,
+  application_name: 'scorehub',
+};
+
 let poolConfig;
 if (process.env.SUPABASE_DB_URL) {
   poolConfig = {
     connectionString: process.env.SUPABASE_DB_URL,
     ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 10000,
+    ...COMMON,
   };
 } else {
   poolConfig = {
@@ -16,7 +28,7 @@ if (process.env.SUPABASE_DB_URL) {
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'postgres',
     ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-    connectionTimeoutMillis: 10000,
+    ...COMMON,
   };
 }
 

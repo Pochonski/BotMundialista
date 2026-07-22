@@ -7,6 +7,7 @@ const path = require('path');
 const pinoHttp = require('pino-http');
 const footballRoutes = require('./routes/football');
 const errorHandler = require('./middleware/errorHandler');
+const { install: installProcessGuard } = require('../../utils/processGuard');
 
 const app = express();
 const PORT = process.env.DASHBOARD_PORT || 3002;
@@ -21,13 +22,14 @@ const serverLogger = pino({
   transport: isDev ? { target: 'pino-pretty', options: { colorize: true } } : undefined,
   level: process.env.LOG_LEVEL || 'info',
 });
+installProcessGuard({ name: 'dashboard-server', logger: serverLogger });
 app.use(pinoHttp({
   logger: serverLogger,
   quietReqLogger: true,
 }));
 app.use(helmet());
 app.set('trust proxy', 1);
-app.use(cors({ origin: whitelist, credentials: true }));
+app.use(cors({ origin: whitelist }));
 app.use(express.json({ limit: '100kb' }));
 
 app.use('/api/', rateLimit({
@@ -51,6 +53,12 @@ app.get('/api/football/health', async (req, res) => {
 
 app.use('/api/football', footballRoutes);
 app.use(errorHandler);
+
+// 404 JSON para rutas /api/* no matcheadas (evita devolver el HTML del SPA
+// a clientes API que esperarían JSON).
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Not found', path: req.path });
+});
 
 const distPath = path.join(__dirname, '..', 'dist');
 app.use(express.static(distPath));

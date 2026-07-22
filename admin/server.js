@@ -2,12 +2,29 @@ require('dotenv').config();
 const express = require('express');
 const { pool } = require('../database/connection');
 const path = require('path');
+const { isAdminEnabled, requireAdmin } = require('../utils/adminAuth');
 
 const app = express();
 const PORT = process.env.ADMIN_PORT || 3001;
 
 // Middleware
 app.use(express.json());
+
+// Auth gate para TODO el panel admin.
+// - Si ADMIN_TOKEN no está configurado → 503 (deshabilitado, seguro por defecto).
+// - Si falta token o es inválido → 401.
+app.use((req, res, next) => {
+  // Permitir options preflight sin auth.
+  if (req.method === 'OPTIONS') return next();
+  if (!isAdminEnabled()) {
+    return res.status(503).json({ error: 'Admin deshabilitado. Configure ADMIN_TOKEN.' });
+  }
+  if (!requireAdmin(req)) {
+    return res.status(401).set('WWW-Authenticate', 'Bearer realm="scorehub-admin"').json({ error: 'No autorizado.' });
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API: Estadísticas generales

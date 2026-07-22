@@ -4,13 +4,17 @@ const cron = require('node-cron');
 const api = require('./scores365Service');
 const { pool } = require('../database/connection');
 const notifier = require('./notifier');
+const logger = require('../utils/logger');
 
 const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 const POLL_MS = parseInt(process.env.SCORES365_POLL_MS || '25000', 10);
 const CRON_EXPR = `*/${Math.max(15, Math.floor(POLL_MS / 1000))} * * * * *`;
 
 function now() { return new Date().toISOString(); }
-function log(msg) { console.log(`[live-poller ${now()}] ${msg}`); }
+function log(msg, extra) {
+  if (extra) logger.info({ poller: 'live', ...extra }, msg);
+  else logger.info({ poller: 'live' }, msg);
+}
 
 const previousStats = new Map();
 
@@ -105,7 +109,7 @@ async function listLiveGames() {
     const current = await api.getGamesCurrent(COMPETITION_ID);
     return (current.games || []).filter((g) => g.statusGroup === 1 || g.statusText === 'En vivo').map((g) => g.id);
   } catch (e) {
-    log(`getGamesCurrent falló: ${e.message}`);
+    logger.error({ err: e, poller: 'live' }, 'getGamesCurrent falló');
     return [];
   }
 }
@@ -122,18 +126,40 @@ async function tick() {
       const r = await pollGame(id);
       log(`  ${id}: ${r.status} (${r.stats ?? 0} stats, ${r.events ?? 0} events)`);
     } catch (e) {
-      log(`  ${id}: ERROR ${e.message}`);
+      logger.error({ err: e, poller: 'live', gameId: id }, 'pollGame ERROR');
     }
+  }
+  // Evacuar entries de juegos que ya no están en vivo (libera memoria y
+  // previene usar snapshots viejos si se reutiliza un gameId).
+  const liveSet = new Set(ids.map(Number));
+  for (const key of previousStats.keys()) {
+    if (!liveSet.has(key)) previousStats.delete(key);
   }
 }
 
 let scheduledTask = null;
+let isRunning = false;
+
+async function tickGuarded() {
+  if (isRunning) {
+    log('tick saltado: ya en curso');
+    return;
+  }
+  isRunning = true;
+  try {
+    await tick();
+  } catch (e) {
+    logger.error({ err: e, poller: 'live' }, 'tick falló');
+  } finally {
+    isRunning = false;
+  }
+}
 
 function start() {
   if (scheduledTask) return scheduledTask;
   log(`iniciando (cron: ${CRON_EXPR})`);
-  scheduledTask = cron.schedule(CRON_EXPR, tick);
-  tick();
+  scheduledTask = cron.schedule(CRON_EXPR, tickGuarded);
+  tickGuarded();
   return scheduledTask;
 }
 
@@ -143,6 +169,8 @@ function stop() {
 }
 
 if (require.main === module) {
+  const { install: installProcessGuard } = require('../utils/processGuard');
+  installProcessGuard({ name: 'liveGamesPoller' });
   start();
   process.on('SIGINT', () => { stop(); process.exit(0); });
   process.on('SIGTERM', () => { stop(); process.exit(0); });

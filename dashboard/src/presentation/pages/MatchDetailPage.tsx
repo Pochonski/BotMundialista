@@ -8,14 +8,13 @@ import { MatchLineups } from '@/presentation/components/match-detail/MatchLineup
 import { MatchTimeline } from '@/presentation/components/match-detail/MatchTimeline'
 import { MatchPredictions } from '@/presentation/components/match-detail/MatchPredictions'
 import { MatchTips } from '@/presentation/components/match-detail/MatchTips'
-import { MatchSuggestions } from '@/presentation/components/match-detail/MatchSuggestions'
 import { MatchNews } from '@/presentation/components/match-detail/MatchNews'
 
 export function MatchDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const gameId = id ? parseInt(id, 10) : null
-  const { game, stats, lineups, timeline, predictions, tips, suggestions, news, loading, error } =
+  const { game, stats, lineups, timeline, predictions, tips, news, loading, error } =
     useGameDetail(gameId)
 
   if (error) return <ErrorState message={error} fullPage />
@@ -53,7 +52,6 @@ export function MatchDetailPage() {
       <MatchTimeline timeline={timeline} />
       <MatchPredictions predictions={predictions} />
       <MatchTips tips={tips} />
-      <MatchSuggestions game={game} suggestions={suggestions} />
       <MatchNews news={news} />
     </div>
   )

@@ -17,7 +17,6 @@ export interface GameDetail {
   timeline: MatchEvent[]
   predictions: Prediction[]
   tips: BettingTip | null
-  suggestions: Game[]
   news: News[]
 }
 
@@ -29,7 +28,6 @@ export function useGameDetail(gameId: number | null) {
     timeline: [],
     predictions: [],
     tips: null,
-    suggestions: [],
     news: [],
   })
   const [loading, setLoading] = useState(true)
@@ -40,21 +38,20 @@ export function useGameDetail(gameId: number | null) {
       if (gameId == null) return
       setLoading(true)
       setError(null)
-      const [game, stats, lineups, timeline, predictions, tips, suggestions, news] = await Promise.all([
+      const [game, stats, lineups, timeline, predictions, tips, news] = await Promise.all([
         repo.getGameById(gameId).catch(() => null),
         repo.getGameStats(gameId).catch(() => [] as GameStat[]),
         repo.getGameLineups(gameId).catch(() => null),
         repo.getGameTimeline(gameId).catch(() => [] as MatchEvent[]),
         repo.getGamePredictions(gameId).catch(() => [] as Prediction[]),
         repo.getGameTips(gameId).catch(() => null),
-        apiClient.get<Game[]>(ENDPOINTS.matchSuggestions(gameId), { signal }).catch(() => [] as Game[]),
         apiClient.get<News[]>(ENDPOINTS.newsByGame(gameId), { signal }).catch(() => [] as News[]),
       ])
       if (!signal?.aborted) {
         if (game == null && stats.length === 0) {
           setError('No se pudieron cargar los datos del partido')
         }
-        setData({ game, stats, lineups, timeline, predictions, tips, suggestions, news })
+        setData({ game, stats, lineups, timeline, predictions, tips, news })
         setLoading(false)
       }
     },

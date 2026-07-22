@@ -53,8 +53,9 @@ function cleanupMaps() {
   }
 }
 
-// Cleanup cada 10 minutos
-setInterval(cleanupMaps, 10 * 60 * 1000);
+// Cleanup cada 10 minutos. `.unref()` para no mantener el event loop vivo al apagar.
+const cleanupTimer = setInterval(cleanupMaps, 10 * 60 * 1000);
+cleanupTimer.unref();
 
 let dbAvailable = false;
 let dbCheckPromise = null;

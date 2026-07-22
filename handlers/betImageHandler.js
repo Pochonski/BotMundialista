@@ -65,6 +65,17 @@ async function procesarImagenApuesta(client, message, media) {
     const apuestaExtraida = parseBetText(textoExtraido);
     const datosApuesta = toJSON(apuestaExtraida);
 
+    // 2b. Umbral de confianza: si el OCR no es fiable, no persistir.
+    const MIN_CONFIDENCE = parseFloat(process.env.OCR_MIN_CONFIDENCE || '0.5');
+    const confianza = ocrResult.confidence || datosApuesta.confianza_ocr || 0;
+    if (confianza < MIN_CONFIDENCE) {
+      await safeReply(
+        `⚠️ La imagen no tiene suficiente calidad para procesar (confianza ${(confianza * 100).toFixed(0)}%, mínimo ${(MIN_CONFIDENCE * 100).toFixed(0)}%).\n\n` +
+        'Probá con una captura más nítida y bien iluminada.'
+      );
+      return;
+    }
+
     // 3. Verificar que se detectó un partido
     if (!datosApuesta.partido_detectado) {
       await safeReply(

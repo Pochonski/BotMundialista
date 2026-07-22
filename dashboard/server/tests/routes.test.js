@@ -1,3 +1,13 @@
+// Mock del pool de base de datos: los controllers usan pool.query directo,
+// no scores365Service, así que hay que mockear database/connection.
+// mockPool.query es un jest.fn() que cada test configura con mockResolvedValueOnce.
+const mockQuery = jest.fn();
+jest.mock('../../../database/connection', () => ({
+  pool: { query: mockQuery },
+  testConnection: jest.fn().mockResolvedValue(true),
+}));
+
+// scores365Service/images siguen mockeados por si algún controller los reach.
 const mockScores365 = {
   getCompetition: jest.fn(),
   getTopCompetitors: jest.fn(),
@@ -35,6 +45,9 @@ const request = require('supertest');
 let app;
 beforeEach(() => {
   jest.clearAllMocks();
+  mockQuery.mockReset();
+  // Default: queries devuelven vacío.
+  mockQuery.mockResolvedValue({ rows: [] });
   delete require.cache[require.resolve('../index')];
   app = require('../index');
 });
@@ -50,11 +63,8 @@ describe('Health Check', () => {
 
 describe('GET /api/football/matches', () => {
   it('devuelve 200 con array de partidos', async () => {
-    const future = new Date(Date.now() + 86400000).toISOString();
-    mockScores365.getGamesAllScores.mockResolvedValue({
-      games: [
-        { id: 1, competitionId: 5930, statusGroup: 2, startTime: future, homeCompetitor: { id: 1, name: 'Team A' }, awayCompetitor: { id: 2, name: 'Team B' }, stageName: 'Group A', groupNum: 1 },
-      ],
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ data: { id: 1, competitionId: 5930, statusGroup: 2, stageName: 'Group A' } }],
     });
     const res = await request(app).get('/api/football/matches');
     expect(res.status).toBe(200);
@@ -63,7 +73,7 @@ describe('GET /api/football/matches', () => {
   });
 
   it('devuelve 200 con filtro statusGroup', async () => {
-    mockScores365.getGamesAllScores.mockResolvedValue({ games: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app).get('/api/football/matches?statusGroup=4');
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
@@ -72,10 +82,8 @@ describe('GET /api/football/matches', () => {
 
 describe('GET /api/football/news', () => {
   it('devuelve 200 con array de noticias', async () => {
-    mockScores365.getNews.mockResolvedValue({
-      news: [
-        { id: '1', title: 'Noticia 1', publishDate: '2026-06-10T12:00:00Z', url: 'https://example.com', sourceId: 1, gameId: null },
-      ],
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ data: { id: '1', title: 'Noticia 1', publishDate: '2026-06-10T12:00:00Z', url: 'https://example.com', sourceId: 1, gameId: null } }],
     });
     const res = await request(app).get('/api/football/news');
     expect(res.status).toBe(200);
@@ -85,10 +93,8 @@ describe('GET /api/football/news', () => {
 
 describe('GET /api/football/standings', () => {
   it('devuelve 200 con array de grupos', async () => {
-    mockScores365.getStandings.mockResolvedValue({
-      standings: [{
-        rows: [{ groupNum: 1, competitor: { id: 1, name: 'Team A' }, gamesWon: 2, gamesEven: 1, gamesLost: 0, goalsFor: 5, goalsAgainst: 2, points: 7, ratio: 3, gamePlayed: 3 }],
-      }],
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ data: { groupNum: 1, rows: [{ competitor: { id: 1, name: 'Team A' }, points: 7 }] } }],
     });
     const res = await request(app).get('/api/football/standings');
     expect(res.status).toBe(200);
@@ -98,12 +104,8 @@ describe('GET /api/football/standings', () => {
 
 describe('GET /api/football/athletes', () => {
   it('devuelve 200 con array de atletas', async () => {
-    mockScores365.getCompetition.mockResolvedValue({
-      competition: {
-        competitors: [
-          { id: 1, name: 'Team A', members: [{ id: 1, name: 'Jugador 1' }] },
-        ],
-      },
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ data: { id: 1, name: 'Jugador 1' } }],
     });
     const res = await request(app).get('/api/football/athletes');
     expect(res.status).toBe(200);
@@ -113,15 +115,15 @@ describe('GET /api/football/athletes', () => {
 
 describe('CORS headers', () => {
   it('incluye Access-Control-Allow-Origin para origenes permitidos', async () => {
-    mockScores365.getGamesAllScores.mockResolvedValue({ games: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .get('/api/football/matches')
-      .set('Origin', 'https://dashboard.mundialista.com');
-    expect(res.headers['access-control-allow-origin']).toBe('https://dashboard.mundialista.com');
+      .set('Origin', 'https://scorehub-rust.vercel.app');
+    expect(res.headers['access-control-allow-origin']).toBe('https://scorehub-rust.vercel.app');
   });
 
   it('rechaza origenes no permitidos', async () => {
-    mockScores365.getGamesAllScores.mockResolvedValue({ games: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .get('/api/football/matches')
       .set('Origin', 'https://evil.com');

@@ -22,8 +22,8 @@ export default defineConfig(({ mode }) => ({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'Mundialista 2026',
-        short_name: 'Mundialista',
+        name: 'ScoreHub · Mundial 2026',
+        short_name: 'ScoreHub',
         description: 'Centro de comando de la Copa Mundial FIFA 2026',
         start_url: '/',
         display: 'standalone',

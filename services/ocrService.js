@@ -13,14 +13,13 @@ async function extractTextFromImage(imageData, options = {}) {
     language = 'spa+eng'
   } = options;
 
+  let worker = null;
   try {
-    const worker = await Tesseract.createWorker(language, 1, {
+    worker = await Tesseract.createWorker(language, 1, {
       logger: logger ? m => console.log(`[OCR] ${m.status}: ${Math.round(m.progress * 100)}%`) : null
     });
 
     const result = await worker.recognize(imageData);
-
-    await worker.terminate();
 
     return {
       text: result.data.text,
@@ -32,6 +31,11 @@ async function extractTextFromImage(imageData, options = {}) {
   } catch (error) {
     console.error('Error en OCR:', error);
     throw error;
+  } finally {
+    // Garantizar liberación del worker nativo aunque recognize() lance.
+    if (worker) {
+      try { await worker.terminate(); } catch (_) { /* noop */ }
+    }
   }
 }
 

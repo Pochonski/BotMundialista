@@ -1,4 +1,10 @@
-// Motor de seguimiento de apuestas en tiempo real
+// Motor de seguimiento de apuestas en tiempo real (CANÓNICO ACTUAL).
+//
+// NOTA: este es el motor vigente del path de WhatsApp (cron, cada 60s).
+// Existe otro motor más nuevo, `services/betEvaluator.js` (event-driven, con
+// semántica PUSH correcta), hoy dormido tras ENABLE_LIVE_NOTIFIER=false.
+// La consolidación está pendiente; ver docs/bet-evaluation.md antes de
+// cambiar cualquiera de los dos.
 const cron = require('node-cron');
 const { pool } = require('../database/connection');
 const cache = require('./mundialCache');

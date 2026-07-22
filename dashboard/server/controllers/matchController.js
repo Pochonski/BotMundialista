@@ -120,13 +120,37 @@ async function getMatchStats(req, res, next) {
     if (!rows.length) return res.json([]);
 
     const data = rows[0].data;
-    const s = data?.statistics || data?.stats || [];
-    const stats = s.map(stat => ({
-      statId: stat.statId || stat.type,
-      label: SCORE_STAT_IDS[stat.statId || stat.type] || `Stat ${stat.statId || stat.type}`,
-      homeValue: stat.home ?? stat.homeValue ?? stat.preMatchHome ?? 0,
-      awayValue: stat.away ?? stat.awayValue ?? stat.preMatchAway ?? 0,
-    })).filter(s => SCORE_STAT_IDS[s.statId]);
+    // 365scores guarda statistics como lista plana: una entrada por
+    // (stat, equipo) con { id, competitorId, value }. Hay que pivotear
+    // a una fila por stat con homeValue/awayValue.
+    const flat = data?.statistics || data?.stats || [];
+    if (!flat.length) return res.json([]);
+
+    // Necesitamos los competitorIds del partido para saber cual es home/away.
+    const { rows: gameRows } = await pool.query('SELECT data FROM games WHERE id = $1', [gid]);
+    const gameData = gameRows[0]?.data;
+    const homeId = gameData?.homeCompetitor?.id ?? gameData?.homeCompetitorId;
+    const awayId = gameData?.awayCompetitor?.id ?? gameData?.awayCompetitorId;
+
+    const byStat = new Map();
+    for (const s of flat) {
+      const sid = s.id ?? s.statId ?? s.type;
+      if (sid == null || !SCORE_STAT_IDS[sid]) continue;
+      if (!byStat.has(sid)) byStat.set(sid, { statId: sid, homeValue: null, awayValue: null });
+      const row = byStat.get(sid);
+      const val = s.value ?? 0;
+      if (s.competitorId === homeId) row.homeValue = val;
+      else if (s.competitorId === awayId) row.awayValue = val;
+    }
+
+    const stats = [...byStat.values()]
+      .filter(r => r.homeValue != null || r.awayValue != null)
+      .map(r => ({
+        statId: r.statId,
+        label: SCORE_STAT_IDS[r.statId],
+        homeValue: r.homeValue ?? 0,
+        awayValue: r.awayValue ?? 0,
+      }));
 
     res.json(stats);
   } catch (err) {

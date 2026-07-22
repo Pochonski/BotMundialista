@@ -1,7 +1,35 @@
 const { pool } = require('../../../database/connection');
+const scores365 = require('../../../services/scores365Service');
 const { enrichGame, enrichTrend, extractLineup, buildMatchupId, SCORE_STAT_IDS } = require('../utils/mappers');
 
 const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
+
+/**
+ * Pivotear la lista plana de statistics de 365scores a una fila por stat
+ * con homeValue/awayValue. Cada entrada del upstream tiene
+ * { id, competitorId, value }; hay que agrupar por id y separar por equipo.
+ */
+function pivotStats(flat, homeId, awayId) {
+  if (!Array.isArray(flat)) return [];
+  const byStat = new Map();
+  for (const s of flat) {
+    const sid = s.id ?? s.statId ?? s.type;
+    if (sid == null || !SCORE_STAT_IDS[sid]) continue;
+    if (!byStat.has(sid)) byStat.set(sid, { statId: sid, homeValue: null, awayValue: null });
+    const row = byStat.get(sid);
+    const val = s.value ?? 0;
+    if (s.competitorId === homeId) row.homeValue = val;
+    else if (s.competitorId === awayId) row.awayValue = val;
+  }
+  return [...byStat.values()]
+    .filter(r => r.homeValue != null || r.awayValue != null)
+    .map(r => ({
+      statId: r.statId,
+      label: SCORE_STAT_IDS[r.statId],
+      homeValue: r.homeValue ?? 0,
+      awayValue: r.awayValue ?? 0,
+    }));
+}
 
 async function getMatches(req, res, next) {
   try {
@@ -116,43 +144,31 @@ async function getMatchStats(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const { rows } = await pool.query('SELECT data FROM game_stats WHERE game_id = $1', [gid]);
-    if (!rows.length) return res.json([]);
-
-    const data = rows[0].data;
-    // 365scores guarda statistics como lista plana: una entrada por
-    // (stat, equipo) con { id, competitorId, value }. Hay que pivotear
-    // a una fila por stat con homeValue/awayValue.
-    const flat = data?.statistics || data?.stats || [];
-    if (!flat.length) return res.json([]);
-
     // Necesitamos los competitorIds del partido para saber cual es home/away.
     const { rows: gameRows } = await pool.query('SELECT data FROM games WHERE id = $1', [gid]);
     const gameData = gameRows[0]?.data;
     const homeId = gameData?.homeCompetitor?.id ?? gameData?.homeCompetitorId;
     const awayId = gameData?.awayCompetitor?.id ?? gameData?.awayCompetitorId;
 
-    const byStat = new Map();
-    for (const s of flat) {
-      const sid = s.id ?? s.statId ?? s.type;
-      if (sid == null || !SCORE_STAT_IDS[sid]) continue;
-      if (!byStat.has(sid)) byStat.set(sid, { statId: sid, homeValue: null, awayValue: null });
-      const row = byStat.get(sid);
-      const val = s.value ?? 0;
-      if (s.competitorId === homeId) row.homeValue = val;
-      else if (s.competitorId === awayId) row.awayValue = val;
+    // 1. Intentar cache en game_stats (populado por syncLiveStats).
+    const { rows } = await pool.query('SELECT data FROM game_stats WHERE game_id = $1', [gid]);
+    const flat = rows[0]?.data?.statistics || rows[0]?.data?.stats || [];
+    if (flat.length) {
+      const stats = pivotStats(flat, homeId, awayId);
+      if (stats.length) return res.json(stats);
     }
 
-    const stats = [...byStat.values()]
-      .filter(r => r.homeValue != null || r.awayValue != null)
-      .map(r => ({
-        statId: r.statId,
-        label: SCORE_STAT_IDS[r.statId],
-        homeValue: r.homeValue ?? 0,
-        awayValue: r.awayValue ?? 0,
-      }));
+    // 2. Fallback: fetch en vivo a 365scores. El sync de stats solo corre para
+    // partidos en vivo, asi que los finalizados/historicos no estan en cache.
+    try {
+      const live = await scores365.getGameStats(gid);
+      const liveFlat = live?.statistics || [];
+      if (liveFlat.length) return res.json(pivotStats(liveFlat, homeId, awayId));
+    } catch (_) {
+      // Si la API falla, continuamos al vacio.
+    }
 
-    res.json(stats);
+    res.json([]);
   } catch (err) {
     next(err);
   }

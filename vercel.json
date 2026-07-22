@@ -5,7 +5,8 @@
   "outputDirectory": "dashboard/dist",
   "installCommand": "npm install && npm install --prefix dashboard --legacy-peer-deps",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" }
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "functions": {
     "api/index.js": {

@@ -1,4 +1,5 @@
 const { pool } = require('../../../database/connection');
+const scores365 = require('../../../services/scores365Service');
 const images = require('../../../services/images');
 const { GROUP_NAMES, transformStandingRow, enrichTeam } = require('../utils/mappers');
 
@@ -40,29 +41,78 @@ async function getStandings(req, res, next) {
   }
 }
 
+/**
+ * Mapea la estructura de brackets de 365scores a la del frontend.
+ *
+ * Estructura del upstream:
+ *   brackets[0].stages[] -> cada stage tiene { num, name, stageType, isFinal, groups[] }
+ *   cada group tiene { name, games[] }
+ *   cada game del bracket es { gameId, venue, game: { id, homeCompetitor, awayCompetitor, ... } }
+ *
+ * Hay que aplanar groups[].games[] a un solo games[] por stage, extraer el
+ * objeto interno .game (que tiene los competitors con scores), y filtrar
+ * solo las stages de eliminatoria (stageType > 1 o isFinal=true), porque la
+ * fase de grupos se ve en Standings.
+ */
+function mapBrackets(doc) {
+  const bracket = doc?.brackets?.[0];
+  if (!bracket?.stages) return [];
+
+  return bracket.stages
+    .filter(s => {
+      // Excluir fase de grupos (stageType=1 o sin hasBrackets).
+      if (s.stageType === 1 || (!s.isFinal && !s.hasBrackets && s.num <= 2)) return false;
+      // Incluir solo stages que tienen games de eliminatoria.
+      const games = (s.groups || []).flatMap(g => g.games || []);
+      return games.length > 0;
+    })
+    .map(s => {
+      // Aplanar groups[].games[] y extraer gg.game.
+      const allGames = (s.groups || []).flatMap(g => {
+        return (g.games || []).map(gg => {
+          const game = gg.game || gg; // fallback por si no viene envuelto
+          const home = game.homeCompetitor;
+          const away = game.awayCompetitor;
+          const homeScore = home?.score;
+          const awayScore = away?.score;
+          return {
+            id: game.id || gg.gameId,
+            homeTeam: home ? enrichTeam(home) : undefined,
+            awayTeam: away ? enrichTeam(away) : undefined,
+            score: (homeScore != null && awayScore != null)
+              ? { home: homeScore, away: awayScore }
+              : undefined,
+            startTime: game.startTime || gg.startTime,
+            status: game.statusGroup || game.status,
+          };
+        });
+      });
+      return {
+        name: s.name,
+        num: s.num,
+        isFinal: s.isFinal || false,
+        games: allGames,
+      };
+    });
+}
+
 async function getBrackets(req, res, next) {
   try {
+    // 1. Cache en DB.
     const { rows } = await pool.query('SELECT data FROM brackets WHERE competition_id = $1', [COMPETITION_ID]);
-    if (!rows.length) return res.json([]);
+    if (rows.length) {
+      const stages = mapBrackets(rows[0].data);
+      if (stages.length) return res.json(stages);
+    }
 
-    const doc = rows[0].data;
-    const bracket = doc?.brackets?.[0];
-    if (!bracket?.stages) return res.json([]);
+    // 2. Fallback a API en vivo.
+    try {
+      const live = await scores365.getBrackets(COMPETITION_ID);
+      const stages = mapBrackets(live);
+      if (stages.length) return res.json(stages);
+    } catch (_) { /* fallthrough */ }
 
-    const stages = bracket.stages.map(s => ({
-      name: s.name,
-      num: s.num,
-      isFinal: s.isFinal || false,
-      games: (s.games || []).map(g => ({
-        id: g.id,
-        homeTeam: g.homeCompetitor ? enrichTeam(g.homeCompetitor) : undefined,
-        awayTeam: g.awayCompetitor ? enrichTeam(g.awayCompetitor) : undefined,
-        score: g.homeCompetitor?.score != null ? { home: g.homeCompetitor.score, away: g.awayCompetitor?.score } : undefined,
-        startTime: g.startTime,
-        status: g.status,
-      })),
-    }));
-    res.json(stages);
+    res.json([]);
   } catch (err) {
     next(err);
   }

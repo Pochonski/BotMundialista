@@ -273,12 +273,19 @@ async function getMatchPredictions(req, res, next) {
     const data = pp.predictions.map(p => ({
       title: p.title,
       totalVotes: p.totalVotes,
-      options: (p.options || []).map(o => ({
-        text: o.text,
-        percentage: o.percentage || (o.voteCount / p.totalVotes * 100),
-        voteCount: o.voteCount,
-      })),
-    }));
+      options: (p.options || [])
+        .map(o => ({
+          text: o.text || o.name || '',
+          percentage: typeof o.percentage === 'number'
+            ? o.percentage
+            : (typeof o.voteCount === 'number' && p.totalVotes
+                ? (o.voteCount / p.totalVotes * 100)
+                : 0),
+          voteCount: o.voteCount ?? o.vote?.count ?? 0,
+        }))
+        // Descartar opciones sin texto: no aportan y rompen el render.
+        .filter(o => o.text),
+    })).filter(p => p.options.length > 0);
     res.json(data);
   } catch (err) {
     next(err);

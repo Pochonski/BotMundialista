@@ -34,10 +34,13 @@ function pivotStats(flat, homeId, awayId) {
     else if (s.competitorId === awayId) row.awayValue = val;
   }
   return [...byStat.values()]
-    .filter(r => r.isTop && (r.homeValue != null || r.awayValue != null))
+    // Mostrar TODAS las stats mapeadas que tengan al menos un valor.
+    // Antes filtrabamos por isTop=true del upstream, lo que descartaba 34 de 43 stats.
+    .filter(r => (r.isMajor || r.isTop || SCORE_STAT_IDS[r.statId]) && (r.homeValue != null || r.awayValue != null))
     .sort((a, b) => {
-      // isMajor primero, luego por statId.
+      // isMajor primero, luego isTop, luego por statId.
       if (a.isMajor !== b.isMajor) return a.isMajor ? -1 : 1;
+      if (a.isTop !== b.isTop) return a.isTop ? -1 : 1;
       return a.statId - b.statId;
     })
     .map(r => ({

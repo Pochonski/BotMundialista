@@ -23,6 +23,7 @@ export interface GameStat {
   label: string
   homeValue: number | string
   awayValue: number | string
+  isMajor?: boolean
 }
 
 export interface Game {

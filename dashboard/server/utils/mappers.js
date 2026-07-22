@@ -9,18 +9,56 @@ const LINE_TYPE_LABELS = {
   14: 'Doble oportunidad',
 };
 
+// IDs reales de 365scores (extraídos del HAR del partido 4773219).
+// Antes teníamos IDs inventados que no coincidían con los del upstream.
 const SCORE_STAT_IDS = {
-  1: 'Goles',
-  6: 'Córners',
-  14: 'Tiros',
-  15: 'Tiros al arco',
-  21: 'Fueras de juego',
-  31: 'Tarjetas amarillas',
-  32: 'Tarjetas rojas',
-  41: 'Posesión %',
-  43: 'Pases totales',
-  52: 'Faltas',
+  1: 'Tarjetas amarillas',
+  2: 'Tarjetas rojas',
+  3: 'Tiros',
+  4: 'Tiros al arco',
+  5: 'Tiros desviados',
+  6: 'Tiros bloqueados',
+  8: 'Córners',
+  9: 'Fueras de juego',
+  10: 'Posesión %',
+  12: 'Faltas',
+  13: 'Tiros libres',
+  14: 'Saques de arco',
+  15: 'Saques de banda',
+  19: 'Pases completados',
+  21: 'Pases totales',
+  23: 'Atajadas',
+  24: 'Grandes oportunidades creadas',
+  36: 'Grandes oportunidades falladas',
+  37: 'Recibió faltas',
+  40: 'Despejes',
+  41: 'Intercepciones',
+  46: 'Pases clave',
+  51: 'Duelos por el suelo ganados',
+  52: 'Centros completados',
+  53: 'Pases largos completados',
+  54: 'Regates exitosos',
+  55: 'Duelos por el suelo ganados',
+  56: 'Duelos aéreos ganados',
+  60: 'Superado en regate',
+  73: 'Pérdidas de balón',
+  76: 'Goles esperados (xG)',
+  77: 'xG recibido',
+  78: 'Asistencias esperadas (xA)',
+  79: 'Tiros a puerta esperados',
+  80: 'Pases al último tercio',
+  81: 'Pases hacia atrás',
+  84: 'Recuperaciones en último tercio',
+  146: 'Tiros dentro del área',
+  147: 'Tiros fuera del área',
+  148: 'Pases en campo propio',
+  149: 'Pases en campo rival',
+  150: 'Duelos ganados',
 };
+
+// Stats que 365scores marca como isMajor=true: las 4 destacadas arriba
+// (Tiros, Tiros al arco, Posesión, xG). Tipo ESPN/365scores.
+const MAJOR_STAT_IDS = new Set([3, 4, 10, 76]);
 
 const GROUP_NAMES = [
   'Grupo A','Grupo B','Grupo C','Grupo D','Grupo E','Grupo F',
@@ -123,6 +161,69 @@ function extractLineup(competitor) {
         rating: m.rating,
       };
     }),
+  };
+}
+
+/**
+ * Construye el objeto { home, away } de alineaciones a partir de la respuesta
+ * del endpoint dedicado /web/athletes/games/lineups.
+ *
+ * Cada member del upstream tiene:
+ *   { id, athleteId, name, shortName, jerseyNumber, imageVersion,
+ *     competitorNum (1=home, 2=away), competitorId,
+ *     position: { name }, formation: { name, shortName },
+ *     status (1=titular, 2=suplente, 3=no disponible),
+ *     ranking (rating), stats[], yardFormation, heatMap }
+ *
+ * El overview no trae names/athleteIds; por eso este endpoint es necesario.
+ */
+function buildLineups(lineupsData, homeId, awayId) {
+  if (!lineupsData) return null;
+  const allMembers = lineupsData.members || lineupsData.lineups?.members || [];
+  if (!allMembers.length) return null;
+
+  const home = [];
+  const away = [];
+  let homeFormation = '';
+  let awayFormation = '';
+
+  for (const m of allMembers) {
+    // Determinar bando: competitorNum (1=home, 2=away) o competitorId directo.
+    let side;
+    if (m.competitorNum === 1 || m.competitorId === homeId) side = 'home';
+    else if (m.competitorNum === 2 || m.competitorId === awayId) side = 'away';
+    else continue;
+
+    const athleteId = m.athleteId || m.id;
+    const member = {
+      athleteId,
+      name: m.name || m.shortName || '',
+      shortName: m.shortName || m.name || '',
+      position: m.formation?.shortName || m.formation?.name || m.position?.name || '',
+      shirtNumber: m.jerseyNumber ?? m.shirtNumber,
+      photoUrl: athleteId ? images.getAthleteThumbUrl(athleteId, m.imageVersion || 26) : null,
+      rating: m.ranking ?? m.rating,
+      isStarter: m.status === 1 || m.statusText === 'Starting',
+    };
+    if (side === 'home') {
+      home.push(member);
+      if (m.formation && !homeFormation) homeFormation = ''; // se setea abajo
+    } else {
+      away.push(member);
+    }
+  }
+
+  // Extraer formation del objeto lineups si existe estructura anidada.
+  if (lineupsData.lineups) {
+    homeFormation = lineupsData.lineups.home?.formation || lineupsData.lineups.homeFormation || '';
+    awayFormation = lineupsData.lineups.away?.formation || lineupsData.lineups.awayFormation || '';
+  }
+
+  if (!home.length && !away.length) return null;
+
+  return {
+    home: home.length ? { formation: homeFormation, members: home } : null,
+    away: away.length ? { formation: awayFormation, members: away } : null,
   };
 }
 
@@ -293,6 +394,7 @@ function parseHistoryDoc(d, teamMap) {
 module.exports = {
   LINE_TYPE_LABELS,
   SCORE_STAT_IDS,
+  MAJOR_STAT_IDS,
   GROUP_NAMES,
   SEASON_TO_YEAR,
   enrichTeam,
@@ -302,6 +404,7 @@ module.exports = {
   enrichTip,
   formatTime,
   extractLineup,
+  buildLineups,
   enrichTransferWithTeam,
   buildMatchupId,
   transformStandingRow,

@@ -6,6 +6,7 @@ export interface LineupMember {
   shirtNumber?: number
   photoUrl?: string
   rating?: number
+  isStarter?: boolean
 }
 
 export interface Lineup {

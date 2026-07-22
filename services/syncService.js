@@ -310,10 +310,13 @@ async function syncOutrights() {
 
 async function syncGameDetailsForGame(gameId) {
   try {
-    const [overview, h2h, preStats] = await Promise.allSettled([
+    // 5 llamadas en paralelo: overview, h2h, prestats, lineups dedicados, stats.
+    const [overview, h2h, preStats, lineups, stats] = await Promise.allSettled([
       api.getGameOverview(gameId),
       api.getGameH2H(gameId, undefined, true),
       api.getGamePreStats(gameId),
+      api.getGameLineups(gameId),
+      api.getGameStats(gameId),
     ]);
 
     if (overview.status === 'fulfilled') {
@@ -340,6 +343,47 @@ async function syncGameDetailsForGame(gameId) {
       }];
       await upsertMany('game_pre_stats', 'game_id', rows);
     }
+    // Alineaciones enriquecidas (endpoint dedicado con names, athleteIds, stats).
+    if (lineups.status === 'fulfilled' && lineups.value) {
+      const rows = [{
+        game_id: gameId,
+        data: JSON.stringify(lineups.value),
+        updated_at: new Date().toISOString(),
+      }];
+      await upsertMany('game_lineups', 'game_id', rows);
+    }
+    // Stats completas del partido (no solo live).
+    if (stats.status === 'fulfilled' && stats.value) {
+      const lastUpdateId = stats.value.lastUpdateId || 0;
+      const rows = [{
+        game_id: gameId,
+        last_update_id: lastUpdateId,
+        data: JSON.stringify(stats.value),
+        updated_at: new Date().toISOString(),
+      }];
+      await upsertMany('game_stats', 'game_id', rows);
+    }
+  } catch (e) {
+    // Silently skip
+  }
+}
+
+// Noticias especificas de un partido (scope='game').
+async function syncGameNewsForGame(gameId) {
+  try {
+    const data = await api.getGameNews(gameId);
+    const items = data?.news || [];
+    if (!items.length) return;
+    const rows = items.filter(n => n.id).map(n => ({
+      id: n.id,
+      scope: 'game',
+      entity_id: gameId,
+      game_id: gameId,
+      publish_date: n.publishDate ? new Date(n.publishDate).toISOString() : null,
+      data: JSON.stringify(n),
+      updated_at: new Date().toISOString(),
+    }));
+    if (rows.length) await upsertMany('news', 'id', rows);
   } catch (e) {
     // Silently skip
   }
@@ -349,12 +393,13 @@ async function syncGameDetails() {
   log('Fetching game details...');
   try {
     const { rows } = await pool.query(
-      'SELECT id FROM games WHERE competition_id = $1 AND status_group IN (1, 2, 4) ORDER BY start_time DESC LIMIT 20',
+      'SELECT id FROM games WHERE competition_id = $1 AND status_group IN (1, 2, 4) ORDER BY start_time DESC LIMIT 50',
       [COMPETITION_ID]
     );
     let count = 0;
     for (const { id } of rows) {
       await syncGameDetailsForGame(id);
+      await syncGameNewsForGame(id);
       count++;
     }
     log(`Synced details for ${count} games`);
@@ -606,6 +651,8 @@ module.exports = {
   syncOdds,
   syncOutrights,
   syncGameDetails,
+  syncGameDetailsForGame,
+  syncGameNewsForGame,
   syncLiveStats,
   syncCatalog,
   syncCountries,

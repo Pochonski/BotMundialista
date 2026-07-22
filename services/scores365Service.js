@@ -117,8 +117,14 @@ const api = {
   getGameOverview: (gameId, matchupId) => get('/web/game/', `gameId=${gameId}${matchupId ? `&matchupId=${matchupId}` : ''}`),
   getGameH2H: (gameId, matchupId, addMainOdds = true) => get('/web/games/h2h/', `gameId=${gameId}${matchupId ? `&matchupId=${matchupId}` : ''}${addMainOdds ? '&addMainOdds=true' : ''}`),
   getGameSuggestions: (gameId, matchupId) => get('/web/games/suggestions/', `games=${gameId}&feedBy=1${matchupId ? `&matchupId=${matchupId}` : ''}`),
-  getGameStats: (gameId, lastUpdateId) => get('/web/game/stats/', `games=${gameId}${lastUpdateId ? `&lastUpdateId=${lastUpdateId}` : ''}`),
+  getGameStats: (gameId, lastUpdateId, filterId) => get('/web/game/stats/', `games=${gameId}${lastUpdateId ? `&lastUpdateId=${lastUpdateId}` : ''}${filterId ? `&filterId=${filterId}` : ''}`),
   getGamePreStats: (gameId) => get('/web/stats/preGame', `game=${gameId}&onlyMajor=true`),
+  // Endpoint dedicado de alineaciones: trae members con name, athleteId,
+  // jerseyNumber, imageVersion, position, formation, stats[] por jugador,
+  // yardFormation (posicion en cancha), ranking (rating), heatMap.
+  getGameLineups: (gameId) => get('/web/athletes/games/lineups', `gameId=${gameId}`),
+  // Noticias especificas de un partido.
+  getGameNews: (gameId) => get('/web/news/', `games=${gameId}&isPreview=false`),
 
   getTournamentStats: (competitionId, seasonNum, competitors = '') => get('/web/stats/', `competitions=${competitionId}${seasonNum ? `&seasonNum=${seasonNum}` : ''}${competitors ? `&competitors=${competitors}` : ''}&withSeasons=true`),
   getStandings: (competitionId, stageNum, seasonNum) => get('/web/standings/', `competitions=${competitionId}&live=false&isPreview=true&stageNum=${stageNum}&seasonNum=${seasonNum}`),

@@ -1,13 +1,15 @@
 const { pool } = require('../../../database/connection');
 const scores365 = require('../../../services/scores365Service');
-const { enrichGame, enrichTrend, extractLineup, buildMatchupId, SCORE_STAT_IDS } = require('../utils/mappers');
+const { enrichGame, enrichTrend, extractLineup, buildLineups, buildMatchupId, SCORE_STAT_IDS, MAJOR_STAT_IDS } = require('../utils/mappers');
 
 const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 
 /**
  * Pivotear la lista plana de statistics de 365scores a una fila por stat
  * con homeValue/awayValue. Cada entrada del upstream tiene
- * { id, competitorId, value }; hay que agrupar por id y separar por equipo.
+ * { id, competitorId, value, isMajor, isTop }; hay que agrupar por id y
+ * separar por equipo. Solo se devuelven stats isTop=true (las que 365scores
+ * muestra en su UI), ordenadas con isMajor primero.
  */
 function pivotStats(flat, homeId, awayId) {
   if (!Array.isArray(flat)) return [];
@@ -15,19 +17,35 @@ function pivotStats(flat, homeId, awayId) {
   for (const s of flat) {
     const sid = s.id ?? s.statId ?? s.type;
     if (sid == null || !SCORE_STAT_IDS[sid]) continue;
-    if (!byStat.has(sid)) byStat.set(sid, { statId: sid, homeValue: null, awayValue: null });
+    if (!byStat.has(sid)) {
+      byStat.set(sid, {
+        statId: sid,
+        homeValue: null,
+        awayValue: null,
+        isMajor: Boolean(s.isMajor) || MAJOR_STAT_IDS.has(sid),
+        isTop: Boolean(s.isTop),
+      });
+    }
     const row = byStat.get(sid);
+    if (s.isMajor) row.isMajor = true;
+    if (s.isTop) row.isTop = true;
     const val = s.value ?? 0;
     if (s.competitorId === homeId) row.homeValue = val;
     else if (s.competitorId === awayId) row.awayValue = val;
   }
   return [...byStat.values()]
-    .filter(r => r.homeValue != null || r.awayValue != null)
+    .filter(r => r.isTop && (r.homeValue != null || r.awayValue != null))
+    .sort((a, b) => {
+      // isMajor primero, luego por statId.
+      if (a.isMajor !== b.isMajor) return a.isMajor ? -1 : 1;
+      return a.statId - b.statId;
+    })
     .map(r => ({
       statId: r.statId,
       label: SCORE_STAT_IDS[r.statId],
       homeValue: r.homeValue ?? 0,
       awayValue: r.awayValue ?? 0,
+      isMajor: r.isMajor,
     }));
 }
 
@@ -204,16 +222,38 @@ async function getMatchLineups(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
-    if (!rows.length) return res.json(null);
+    // Necesitamos los competitorIds del partido para separar home/away.
+    const { rows: gameRows } = await pool.query('SELECT data FROM games WHERE id = $1', [gid]);
+    const gameData = gameRows[0]?.data;
+    const homeId = gameData?.homeCompetitor?.id ?? gameData?.homeCompetitorId;
+    const awayId = gameData?.awayCompetitor?.id ?? gameData?.awayCompetitorId;
 
-    const game = rows[0].data?.game;
-    if (!game) return res.json(null);
+    // 1. Intentar tabla dedicada game_lineups (endpoint /web/athletes/games/lineups
+    //    que trae names, athleteIds, imageVersion, stats por jugador).
+    const { rows } = await pool.query('SELECT data FROM game_lineups WHERE game_id = $1', [gid]);
+    if (rows.length) {
+      const built = buildLineups(rows[0].data, homeId, awayId);
+      if (built) return res.json(built);
+    }
 
-    const home = extractLineup(game.homeCompetitor);
-    const away = extractLineup(game.awayCompetitor);
-    const lineups = { home, away };
-    res.json(!home && !away ? null : lineups);
+    // 2. Fallback a la API en vivo.
+    try {
+      const live = await scores365.getGameLineups(gid);
+      const built = buildLineups(live, homeId, awayId);
+      if (built) return res.json(built);
+    } catch (_) { /* fallthrough */ }
+
+    // 3. Último recurso: overview (members sin nombres completos).
+    const { rows: ovRows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
+    const game = ovRows[0]?.data?.game;
+    if (game) {
+      const home = extractLineup(game.homeCompetitor);
+      const away = extractLineup(game.awayCompetitor);
+      const lineups = { home, away };
+      if (home || away) return res.json(lineups);
+    }
+
+    res.json(null);
   } catch (err) {
     next(err);
   }
@@ -299,34 +339,58 @@ async function getMatchTrends(req, res, next) {
   }
 }
 
+// Helper: mapear predictions del formato 365scores al del frontend.
+// El HAR muestra que cada option tiene { name, vote: { count, percentage } },
+// NO { text, percentage, voteCount }. totalVotes puede faltar y calcularse.
+function mapPredictions(predictions) {
+  return (predictions || [])
+    .map(p => {
+      const options = (p.options || [])
+        .map(o => {
+          const vote = o.vote || {};
+          const voteCount = vote.count ?? o.voteCount ?? 0;
+          const pct = typeof vote.percentage === 'number'
+            ? vote.percentage
+            : typeof o.percentage === 'number'
+              ? o.percentage
+              : (p.totalVotes && voteCount ? (voteCount / p.totalVotes * 100) : 0);
+          return {
+            text: o.text || o.name || '',
+            percentage: pct,
+            voteCount,
+          };
+        })
+        .filter(o => o.text); // sin texto no aporta y rompe el render
+      const totalVotes = p.totalVotes ?? options.reduce((s, o) => s + o.voteCount, 0);
+      return { title: p.title || '', totalVotes, options };
+    })
+    .filter(p => p.options.length > 0);
+}
+
 async function getMatchPredictions(req, res, next) {
   try {
     const { id } = req.params;
     const gid = Number(id);
 
+    // 1. Cache en game_overviews.
     const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
-    if (!rows.length) return res.json([]);
+    const pp = rows[0]?.data?.game?.promotedPredictions;
+    if (pp?.predictions?.length) {
+      const mapped = mapPredictions(pp.predictions);
+      if (mapped.length) return res.json(mapped);
+    }
 
-    const pp = rows[0].data?.game?.promotedPredictions;
-    if (!pp?.predictions?.length) return res.json([]);
+    // 2. Fallback a la API en vivo.
+    try {
+      const overview = await scores365.getGameOverview(gid);
+      const livePp = overview?.game?.promotedPredictions;
+      if (livePp?.predictions?.length) {
+        const mapped = mapPredictions(livePp.predictions);
+        if (mapped.length) return res.json(mapped);
+      }
+    } catch (_) { /* fallthrough */ }
 
-    const data = pp.predictions.map(p => ({
-      title: p.title,
-      totalVotes: p.totalVotes,
-      options: (p.options || [])
-        .map(o => ({
-          text: o.text || o.name || '',
-          percentage: typeof o.percentage === 'number'
-            ? o.percentage
-            : (typeof o.voteCount === 'number' && p.totalVotes
-                ? (o.voteCount / p.totalVotes * 100)
-                : 0),
-          voteCount: o.voteCount ?? o.vote?.count ?? 0,
-        }))
-        // Descartar opciones sin texto: no aportan y rompen el render.
-        .filter(o => o.text),
-    })).filter(p => p.options.length > 0);
-    res.json(data);
+    res.json([]);
   } catch (err) {
     next(err);
   }

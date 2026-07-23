@@ -325,16 +325,27 @@ async function getMatchTips(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
+    // Los trends del upstream 365scores están guardados con scope='competition'
+    // (vinculados a la comp, no al game), pero cada trend trae su `gameId`.
+    // Leemos tanto los competition-level trends del partido como los game-level
+    // (legacy) para cubrir todas las fuentes.
     const { rows } = await pool.query(
-      'SELECT data FROM trends WHERE scope = $1 AND game_id = $2',
-      ['game', gid]
+      `SELECT data FROM trends
+        WHERE game_id = $1
+          AND scope IN ('competition', 'game')
+        ORDER BY (data->>'percentage')::numeric DESC NULLS LAST
+        LIMIT 50`,
+      [gid]
     );
     const allTrends = rows.map(r => enrichTrend(r.data));
     const topTrends = allTrends.slice(0, 5);
 
     const tip = {
       gameId: gid,
-      confidenceScore: topTrends.length > 0 ? Math.round(topTrends.reduce((s, t) => s + (t.percentage || 0), 0) / topTrends.length) : 0,
+      confidenceScore:
+        topTrends.length > 0
+          ? Math.round(topTrends.reduce((s, t) => s + (t.percentage || 0), 0) / topTrends.length)
+          : 0,
       generatedAt: new Date().toISOString(),
       topTrends,
       allTrends,

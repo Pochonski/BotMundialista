@@ -209,6 +209,62 @@ export function useStandingsSeasons(competitionId: number | null) {
 }
 
 // ============================================================================
+// useCompetitionInsights (bundle)
+// ============================================================================
+
+export interface CompetitionInsights {
+  competitionId: number
+  trends: Array<Record<string, unknown>>
+  suggestions: Array<Record<string, unknown>>
+  outrights: Record<string, unknown> | null
+  topStats: {
+    scorers: Array<{ athleteId: number; name: string; teamName?: string; value: number; photoUrl?: string }>
+    assists: Array<{ athleteId: number; name: string; teamName?: string; value: number; photoUrl?: string }>
+    ratings: Array<{ athleteId: number; name: string; teamName?: string; value: number; photoUrl?: string }>
+  } | null
+  upcoming: Array<Record<string, unknown>>
+}
+
+/**
+ * GET /competitions/:id/insights
+ * Bundle completo: trends + suggestions + outrights + top stats + upcoming.
+ */
+export function useCompetitionInsights(competitionId: number | null) {
+  const [insights, setInsights] = useState<CompetitionInsights | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  const fetch = useCallback(async (signal?: AbortSignal) => {
+    if (competitionId == null) {
+      setInsights(null)
+      return
+    }
+    try {
+      setLoading(true)
+      const { apiClient } = await import('@/data/datasources/ApiClient')
+      const { ENDPOINTS } = await import('@/infrastructure/config')
+      const data = await apiClient.get<CompetitionInsights>(ENDPOINTS.competitionInsights(competitionId), {
+        signal,
+      })
+      if (!signal?.aborted) setInsights(data)
+    } catch {
+      if (!signal?.aborted) setInsights(null)
+    } finally {
+      if (!signal?.aborted) setLoading(false)
+    }
+  }, [competitionId])
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    fetch(ctrl.signal)
+    return () => ctrl.abort()
+  }, [fetch])
+
+  return { insights, loading, refetch: () => fetch() }
+}
+
+// ============================================================================
 // useTeamInfo
 // ============================================================================
 

@@ -44,6 +44,7 @@ export const ENDPOINTS = {
   competitionSeasons: (id: number | string) => `/competitions/${id}/seasons`,
   competitionTransfers: (id: number | string) => `/competitions/${id}/transfers`,
   competitionTransfersSummary: (id: number | string) => `/competitions/${id}/transfers/summary`,
+  competitionInsights: (id: number | string) => `/competitions/${id}/insights`,
   suggestions: `/suggestions`,
   standingsSeasons: `/standings/seasons`,
   teamInfo: (id: number | string) => `/teams/${id}/info`,

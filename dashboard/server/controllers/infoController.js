@@ -193,6 +193,104 @@ async function getCompetitionSeasons(req, res, next) {
   }
 }
 
+/**
+ * GET /competitions/:id/insights
+ * Bundle completo de insights de una competición para el frontend:
+ * tendencias, sugerencias (top upcoming games), outrights (campeón), top scorers
+ * y próximos partidos destacados. Sirve para alimentar la pestaña "Análisis"
+ * sin hacer 6 requests separados.
+ */
+async function getCompetitionInsights(req, res, next) {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const resolved = await resolveCompetition(req, res);
+    if (!resolved) return;
+    const competitionId = resolved.competitionId;
+
+    // Tendencias (competition-level).
+    const trendsRes = await pool.query(
+      `SELECT data FROM trends WHERE scope = 'competition' AND entity_id = $1
+         ORDER BY (data->>'percentage')::numeric DESC NULLS LAST LIMIT 10`,
+      [competitionId]
+    );
+    const trends = trendsRes.rows.map(r => r.data);
+
+    // Sugerencias (top upcoming games cacheados en game_suggestions).
+    const suggRes = await pool.query(
+      `SELECT data FROM game_suggestions WHERE competition_id = $1
+         ORDER BY rank NULLS LAST LIMIT 8`,
+      [competitionId]
+    );
+    const suggestions = suggRes.rows.map(r => r.data);
+
+    // Outrights (cuotas de campeón).
+    const outrightRes = await pool.query(
+      'SELECT data FROM odds_outrights WHERE competition_id = $1',
+      [competitionId]
+    );
+    const outrights = outrightRes.rows.map(r => r.data)[0] || null;
+
+    // Top scorers (asistentes y rating también) desde tournament_stats.
+    const statsRes = await pool.query(
+      'SELECT data FROM tournament_stats WHERE competition_id = $1 ORDER BY season_num DESC LIMIT 1',
+      [competitionId]
+    );
+    const topStats = statsRes.rows.length ? extractTopStats(statsRes.rows[0].data) : null;
+
+    // Próximos partidos destacados (3 con mejor valor de apuesta).
+    const gamesRes = await pool.query(
+      `SELECT data FROM games
+        WHERE competition_id = $1
+          AND status_group = 2
+          AND start_time > NOW()
+        ORDER BY start_time ASC LIMIT 5`,
+      [competitionId]
+    );
+    const upcoming = gamesRes.rows.map(r => r.data);
+
+    res.json({
+      competitionId,
+      trends,
+      suggestions,
+      outrights,
+      topStats,
+      upcoming,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Extrae top-5 scorers, top-5 assists y top-5 ratings de tournament_stats.
+ * El upstream devuelve un objeto con categorías (Goals, Assists, Rating 365).
+ */
+function extractTopStats(raw) {
+  if (!raw?.stats?.athletesStats) return null;
+  const cats = Array.isArray(raw.stats.athletesStats)
+    ? raw.stats.athletesStats
+    : Object.values(raw.stats.athletesStats || {});
+
+  const pickTop = (catId) => {
+    const cat = cats.find(c => c.id === catId) || cats.find(c => c.name === catId);
+    if (!cat?.rows) return [];
+    return cat.rows.slice(0, 5).map(r => ({
+      athleteId: r.entity?.id,
+      name: r.entity?.name || r.entity?.shortName,
+      teamName: r.entity?.competitorName || r.teamName || null,
+      photoUrl: r.entity?.id ? `https://imagecache.365scores.com/image/upload/f_png,w_96,h_96,c_limit,q_auto:eco,dpr_1/v${r.entity.imageVersion || 1}/Athletes/${r.entity.id}` : null,
+      value: r.value ?? r.stats?.[0]?.value ?? null,
+    }));
+  };
+
+  return {
+    scorers: pickTop(1),     // Goals
+    assists: pickTop(3),     // Assists
+    ratings: pickTop(7),     // Rating 365
+  };
+}
+
 module.exports = {
   getCountries,
   getTournamentInfo,
@@ -200,4 +298,5 @@ module.exports = {
   getFeaturedCompetitions,
   getCompetitionDetail,
   getCompetitionSeasons,
+  getCompetitionInsights,
 };

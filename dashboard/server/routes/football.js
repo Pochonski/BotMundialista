@@ -80,6 +80,7 @@ router.get('/tournament-info', infoController.getTournamentInfo);
 router.get('/competitions/featured', infoController.getFeaturedCompetitions);
 router.get('/competitions/:id/transfers/summary', transfersController.getCompetitionTransfersSummary);
 router.get('/competitions/:id/transfers', transfersController.getCompetitionTransfers);
+router.get('/competitions/:id/insights', infoController.getCompetitionInsights);
 router.get('/competitions/:id/seasons', infoController.getCompetitionSeasons);
 router.get('/competitions/:id', infoController.getCompetitionDetail);
 router.get('/competitions', infoController.getCompetitions);

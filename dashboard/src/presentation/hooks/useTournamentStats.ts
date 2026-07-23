@@ -20,11 +20,12 @@ export function useTournamentStats(competitionId?: number | null, seasonNum?: nu
       setLoading(true)
       const repo = DiContainer.getInstance().getTournamentStatsRepository()
       const cid = competitionId ?? undefined
+      const sn = seasonNum ?? undefined
       const [s, a, r, tow] = await Promise.all([
-        repo.getTopScorers(cid),
-        repo.getTopAssists(cid),
-        repo.getTopRatings(cid),
-        repo.getTeamOfWeek(cid),
+        repo.getTopScorers(cid, sn),
+        repo.getTopAssists(cid, sn),
+        repo.getTopRatings(cid, sn),
+        repo.getTeamOfWeek(cid, sn),
       ])
       if (!signal?.aborted) {
         setScorers(s)

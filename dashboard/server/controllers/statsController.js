@@ -4,7 +4,11 @@ const { resolveCompetition } = require('../utils/competition');
 
 const STAT_TYPE_MAP = { 1: 1, 3: 2, 7: 36 };
 
-async function fetchFromCache(competitionId, seasonNum, statCategoryId) {
+async function fetchFromCache(competitionId, seasonNum, statCategoryId, startDate) {
+  // Si la temporada no ha empezado, devolver vacío (los datos cacheados
+  // corresponden a la temporada anterior, no a la actual).
+  if (startDate && new Date(startDate) > new Date()) return [];
+
   const { rows } = await pool.query(
     'SELECT data FROM tournament_stats WHERE competition_id = $1 AND season_num = $2',
     [competitionId, seasonNum]
@@ -50,7 +54,7 @@ async function getTopScorers(req, res, next) {
     const seasonNum = req.query.seasonNum
       ? parseInt(req.query.seasonNum, 10)
       : resolved.seasonNum;
-    const entries = await fetchFromCache(resolved.competitionId, seasonNum, 1);
+    const entries = await fetchFromCache(resolved.competitionId, seasonNum, 1, resolved.comp?.startDate);
     res.json(entries);
   } catch (err) {
     next(err);
@@ -64,7 +68,7 @@ async function getTopAssists(req, res, next) {
     const seasonNum = req.query.seasonNum
       ? parseInt(req.query.seasonNum, 10)
       : resolved.seasonNum;
-    const entries = await fetchFromCache(resolved.competitionId, seasonNum, 3);
+    const entries = await fetchFromCache(resolved.competitionId, seasonNum, 3, resolved.comp?.startDate);
     res.json(entries);
   } catch (err) {
     next(err);
@@ -78,7 +82,7 @@ async function getTopRatings(req, res, next) {
     const seasonNum = req.query.seasonNum
       ? parseInt(req.query.seasonNum, 10)
       : resolved.seasonNum;
-    const entries = await fetchFromCache(resolved.competitionId, seasonNum, 7);
+    const entries = await fetchFromCache(resolved.competitionId, seasonNum, 7, resolved.comp?.startDate);
     res.json(entries);
   } catch (err) {
     next(err);

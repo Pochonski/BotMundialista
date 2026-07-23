@@ -47,7 +47,10 @@ async function getTopScorers(req, res, next) {
   try {
     const resolved = await resolveCompetition(req, res);
     if (!resolved) return;
-    const entries = await fetchFromCache(resolved.competitionId, resolved.seasonNum, 1);
+    const seasonNum = req.query.seasonNum
+      ? parseInt(req.query.seasonNum, 10)
+      : resolved.seasonNum;
+    const entries = await fetchFromCache(resolved.competitionId, seasonNum, 1);
     res.json(entries);
   } catch (err) {
     next(err);
@@ -58,7 +61,10 @@ async function getTopAssists(req, res, next) {
   try {
     const resolved = await resolveCompetition(req, res);
     if (!resolved) return;
-    const entries = await fetchFromCache(resolved.competitionId, resolved.seasonNum, 3);
+    const seasonNum = req.query.seasonNum
+      ? parseInt(req.query.seasonNum, 10)
+      : resolved.seasonNum;
+    const entries = await fetchFromCache(resolved.competitionId, seasonNum, 3);
     res.json(entries);
   } catch (err) {
     next(err);
@@ -69,7 +75,10 @@ async function getTopRatings(req, res, next) {
   try {
     const resolved = await resolveCompetition(req, res);
     if (!resolved) return;
-    const entries = await fetchFromCache(resolved.competitionId, resolved.seasonNum, 7);
+    const seasonNum = req.query.seasonNum
+      ? parseInt(req.query.seasonNum, 10)
+      : resolved.seasonNum;
+    const entries = await fetchFromCache(resolved.competitionId, seasonNum, 7);
     res.json(entries);
   } catch (err) {
     next(err);

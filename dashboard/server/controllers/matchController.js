@@ -65,7 +65,7 @@ function pivotStats(flat, homeId, awayId) {
 
 async function getMatches(req, res, next) {
   try {
-    const { statusGroup, stage, teamId, all } = req.query;
+    const { statusGroup, stage, teamId, all, seasonNum: seasonNumQ } = req.query;
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(50, parseInt(req.query.limit) || 20);
     const offset = (page - 1) * limit;
@@ -73,6 +73,7 @@ async function getMatches(req, res, next) {
     // Modo "all" devuelve partidos de todas las competiciones activas
     // (útil para la home multi-comp con tab "Todas").
     let compIds;
+    let defaultSeasonNum = null;
     if (all === 'true') {
       compIds = await resolveCompetitionIds(req, res);
       if (compIds === null) return;
@@ -80,10 +81,28 @@ async function getMatches(req, res, next) {
       const resolved = await resolveCompetition(req, res);
       if (!resolved) return;
       compIds = [resolved.competitionId];
+      defaultSeasonNum = resolved.seasonNum;
     }
 
     let query = 'SELECT data FROM games WHERE competition_id = ANY($1::int[])';
     const params = [compIds];
+
+    // Filtro de temporada: ?seasonNum=X fuerza una temporada concreta;
+    // por defecto usamos la temporada activa de la comp. Pasar
+    // ?seasonNum=all desactiva el filtro (todas las temporadas).
+    let filterSeasonNum = defaultSeasonNum;
+    if (seasonNumQ != null) {
+      if (seasonNumQ === 'all') {
+        filterSeasonNum = null;
+      } else {
+        const parsed = parseInt(seasonNumQ, 10);
+        if (Number.isFinite(parsed)) filterSeasonNum = parsed;
+      }
+    }
+    if (filterSeasonNum != null) {
+      query += ` AND (data->>'seasonNum')::int = $${params.length + 1}`;
+      params.push(filterSeasonNum);
+    }
 
     if (statusGroup) {
       const groups = statusGroup.split(',').map(Number).filter(n => !isNaN(n));

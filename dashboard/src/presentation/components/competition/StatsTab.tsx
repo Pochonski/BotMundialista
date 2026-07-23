@@ -46,8 +46,8 @@ function AccordionSection({
   )
 }
 
-export function StatsTab({ competitionId }: { competitionId?: number }) {
-  const { scorers, assists, ratings, teamOfWeek, loading } = useTournamentStats(competitionId)
+export function StatsTab({ competitionId, seasonNum }: { competitionId?: number; seasonNum?: number }) {
+  const { scorers, assists, ratings, teamOfWeek, loading } = useTournamentStats(competitionId, seasonNum)
 
   if (loading) {
     return (

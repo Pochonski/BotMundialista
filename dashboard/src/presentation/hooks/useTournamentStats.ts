@@ -7,7 +7,7 @@ interface TeamOfWeekData {
   players: Array<{ name: string; rating: number; position: string; photoUrl?: string }>
 }
 
-export function useTournamentStats(competitionId?: number | null) {
+export function useTournamentStats(competitionId?: number | null, seasonNum?: number | null) {
   const [scorers, setScorers] = useState<TournamentStatEntry[]>([])
   const [assists, setAssists] = useState<TournamentStatEntry[]>([])
   const [ratings, setRatings] = useState<TournamentStatEntry[]>([])
@@ -42,7 +42,7 @@ export function useTournamentStats(competitionId?: number | null) {
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [competitionId])
+  }, [competitionId, seasonNum])
   /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {

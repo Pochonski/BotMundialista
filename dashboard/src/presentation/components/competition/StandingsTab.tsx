@@ -5,6 +5,7 @@ import { StandingsSkeleton } from '@/presentation/components/ui/Skeleton'
 
 interface Props {
   competitionId?: number
+  seasonNum?: number
 }
 
 const STAGES = [
@@ -12,9 +13,9 @@ const STAGES = [
   { id: 2, label: 'Apertura' },
 ] as const
 
-export function StandingsTab({ competitionId }: Props) {
+export function StandingsTab({ competitionId, seasonNum }: Props) {
   const [stageNum, setStageNum] = useState<number>(1)
-  const { groups, loading, error } = useStandings(competitionId, { stageNum })
+  const { groups, loading, error } = useStandings(competitionId, { stageNum, seasonNum })
 
   if (loading) return <StandingsSkeleton />
 

@@ -1,36 +1,26 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 
-// Configuración común al pool: sizing, timeouts y application_name para
-// depurar conexiones desde el lado de la base de datos.
-const COMMON = {
+const poolConfig = {
   max: parseInt(process.env.DB_POOL_MAX || '25', 10),
   idleTimeoutMillis: 30000,
-  maxUses: 7500, // recicla conexiones viejas para evitar leaks en conexiones largas
+  maxUses: 7500,
   connectionTimeoutMillis: 10000,
-  statement_timeout: 30000, // aborta queries que excedan 30s
+  statement_timeout: 30000,
   query_timeout: 30000,
   application_name: 'scorehub',
-  family: 4, // fuerza IPv4 — el host de Supabase resuelve a ::1 y da EACCES
 };
 
-let poolConfig;
 if (process.env.SUPABASE_DB_URL) {
-  poolConfig = {
-    connectionString: process.env.SUPABASE_DB_URL,
-    ssl: { rejectUnauthorized: false },
-    ...COMMON,
-  };
+  poolConfig.connectionString = process.env.SUPABASE_DB_URL;
+  poolConfig.ssl = { rejectUnauthorized: false };
 } else {
-  poolConfig = {
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '5432', 10),
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'postgres',
-    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-    ...COMMON,
-  };
+  poolConfig.host = process.env.DB_HOST || 'localhost';
+  poolConfig.port = parseInt(process.env.DB_PORT || '5432', 10);
+  poolConfig.user = process.env.DB_USER || 'postgres';
+  poolConfig.password = process.env.DB_PASSWORD || '';
+  poolConfig.database = process.env.DB_NAME || 'postgres';
+  poolConfig.ssl = process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false;
 }
 
 const pool = new Pool(poolConfig);

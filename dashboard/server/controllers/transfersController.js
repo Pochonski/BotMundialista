@@ -81,10 +81,9 @@ async function getCompetitionTransfersSummary(req, res, next) {
     if (!resolved) return;
     const competitionId = resolved.competitionId;
 
-    // Hydrate team info from competitors table — buscamos TODOS los equipos
-    // involucrados en transfers de esta comp (origen o destino), no solo
-    // los que tengan competition_id = X (los transfers pueden incluir equipos
-    // externos como Bayern Munich, Real Madrid, etc.).
+    // Solo equipos que pertenecen a esta competición (competition_id = $1).
+    // Excluye equipos externos (Bayern Munich en Premier, etc.) que aparecen
+    // como origen/destino en transfers pero no juegan en esta liga.
     const { rows: teams } = await pool.query(
       `SELECT DISTINCT t.id, t.name, t.data
          FROM competitors t
@@ -92,7 +91,8 @@ async function getCompetitionTransfersSummary(req, res, next) {
           SELECT origin_id FROM competition_transfers WHERE competition_id = $1 AND origin_id IS NOT NULL
           UNION
           SELECT target_id FROM competition_transfers WHERE competition_id = $1 AND target_id IS NOT NULL
-        )`,
+        )
+          AND t.competition_id = $1`,
       [competitionId]
     );
     const teamMap = new Map(teams.map(t => [Number(t.id), {
@@ -102,28 +102,6 @@ async function getCompetitionTransfersSummary(req, res, next) {
       imageVersion: t.data?.imageVersion ?? 1,
       badgeUrl: images.getTeamBadgeUrl(t.id, t.data?.imageVersion ?? 1),
     }]));
-
-    // Colectamos equipo origen/destino de los transfers — necesarios para
-    // el nombre de equipos que no están en la tabla `competitors`.
-    const teamNamesFromTransfers = new Map();
-    const { rows: transferRows } = await pool.query(
-      `SELECT origin_id, target_id, data
-         FROM competition_transfers
-        WHERE competition_id = $1
-          AND (origin_id IS NOT NULL OR target_id IS NOT NULL)`,
-      [competitionId]
-    );
-    for (const tr of transferRows) {
-      const raw = typeof tr.data === 'object' && tr.data ? tr.data : {};
-      if (tr.origin_id != null && !teamMap.has(Number(tr.origin_id))) {
-        const name = raw.originName ?? raw.originShortName ?? null;
-        if (name) teamNamesFromTransfers.set(Number(tr.origin_id), name);
-      }
-      if (tr.target_id != null && !teamMap.has(Number(tr.target_id))) {
-        const name = raw.targetName ?? raw.targetShortName ?? null;
-        if (name) teamNamesFromTransfers.set(Number(tr.target_id), name);
-      }
-    }
 
     const { rows } = await pool.query(
       `SELECT team_id, arrivals, departures, (arrivals + departures) AS total
@@ -141,18 +119,15 @@ async function getCompetitionTransfersSummary(req, res, next) {
     );
 
     const summary = rows
-      .filter(r => r.team_id != null)
+      .filter(r => r.team_id != null && teamMap.has(Number(r.team_id)))
       .map(r => {
         const tid = Number(r.team_id);
         const t = teamMap.get(tid);
-        const nameFromData = t?.name
-          || teamNamesFromTransfers.get(tid)
-          || null;
         return {
           teamId: tid,
-          name: nameFromData || `#${tid}`,
-          shortName: t?.shortName ?? null,
-          badgeUrl: images.getTeamBadgeUrl(tid, t?.data?.imageVersion ?? 1),
+          name: t.name || `#${tid}`,
+          shortName: t.shortName ?? null,
+          badgeUrl: images.getTeamBadgeUrl(tid, t.imageVersion ?? 1),
           arrivals: Number(r.arrivals),
           departures: Number(r.departures),
         };

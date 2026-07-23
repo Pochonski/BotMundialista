@@ -887,16 +887,19 @@ async function syncTransfersForComp(comp) {
     }
 
     // Upsert competitors externos que aparezcan en transfers (no en active comp).
+    // NO actualizamos competition_id para no pisar la competición real del equipo
+    // (por ej. Barcelona aparece en transfers de Premier League pero es de LaLiga).
     if (competitors.length) {
       for (const c of competitors) {
-        const row = {
-          id: c.id,
-          competition_id: comp.id,
-          name: c.name ?? null,
-          data: JSON.stringify(c),
-          updated_at: new Date().toISOString(),
-        };
-        await upsertMany('competitors', 'id', [row]);
+        await pool.query(
+          `INSERT INTO competitors (id, competition_id, name, data, updated_at)
+           VALUES ($1, $2, $3, $4::jsonb, $5)
+           ON CONFLICT (id) DO UPDATE SET
+             name = EXCLUDED.name,
+             data = EXCLUDED.data,
+             updated_at = EXCLUDED.updated_at`,
+          [c.id, null, c.name ?? null, JSON.stringify(c), new Date().toISOString()]
+        );
       }
     }
 
@@ -912,9 +915,9 @@ async function syncTransfersForComp(comp) {
       if (!knownIds.has(id)) {
         await pool.query(
           `INSERT INTO competitors (id, competition_id, name, data, updated_at)
-           VALUES ($1, $2, NULL, $3::jsonb, $4)
+           VALUES ($1, NULL, NULL, $2::jsonb, $3)
            ON CONFLICT (id) DO NOTHING`,
-          [id, comp.id, JSON.stringify({ id }), new Date().toISOString()]
+          [id, JSON.stringify({ id }), new Date().toISOString()]
         );
       }
     }

@@ -40,13 +40,29 @@ app.use('/api/', rateLimit({
 }));
 
 app.get('/api/football/health', async (req, res) => {
-  res.json({
-    status: 'ok',
-    datasource: '365scores',
-    cache: 'supabase',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  });
+  try {
+    const { pool } = require('../../database/connection');
+    const r = await pool.query('SELECT NOW() as now');
+    res.json({
+      status: 'ok',
+      datasource: '365scores',
+      cache: 'supabase',
+      db: 'connected',
+      dbTime: r.rows[0].now,
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    res.status(500).json({
+      status: 'error',
+      datasource: '365scores',
+      cache: 'supabase',
+      db: 'disconnected',
+      error: e.message,
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 

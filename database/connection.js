@@ -2,7 +2,7 @@ require('dotenv').config();
 const { Pool } = require('pg');
 
 const poolConfig = {
-  max: parseInt(process.env.DB_POOL_MAX || '10', 10),
+  max: parseInt(process.env.DB_POOL_MAX || '2', 10),
   idleTimeoutMillis: 30000,
   maxUses: 7500,
   connectionTimeoutMillis: 10000,
@@ -30,15 +30,17 @@ pool.on('error', (err) => {
 });
 
 async function testConnection() {
+  let client;
   try {
-    const client = await pool.connect();
+    client = await pool.connect();
     const r = await client.query('SELECT NOW() as now, current_database() as db');
     console.log(`Database connected (${r.rows[0].db}) @ ${r.rows[0].now.toISOString()}`);
-    client.release();
     return true;
   } catch (error) {
     console.error('Database connection failed:', error.message);
     return false;
+  } finally {
+    if (client) client.release();
   }
 }
 

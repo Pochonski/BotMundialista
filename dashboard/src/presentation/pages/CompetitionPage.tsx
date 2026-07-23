@@ -305,15 +305,6 @@ export function CompetitionPage() {
   // pasar 'all' cuando el usuario está viendo archivo histórico.
   const tabSeasonNum: number | 'all' | null = seasonFilter
 
-  // Reset al tab "standings" si cambia la temporada (la info mostrada cambia).
-  const prevSeasonRef = useRef(seasonFilter)
-  useEffect(() => {
-    if (prevSeasonRef.current !== seasonFilter) {
-      prevSeasonRef.current = seasonFilter
-      // No reseteamos el tab — dejamos que el usuario elija.
-    }
-  }, [seasonFilter])
-
   const titleText = info?.name || detail.displayName
   const subtitleParts = [
     seasonFilter === 'all'

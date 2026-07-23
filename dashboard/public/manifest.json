@@ -1,7 +1,7 @@
 {
-  "name": "ScoreHub · Mundial 2026",
+  "name": "ScoreHub · Fútbol multi-competición",
   "short_name": "ScoreHub",
-  "description": "Centro de comando de la Copa Mundial FIFA 2026",
+  "description": "Partidos en vivo, tablas, estadísticas y fichajes — Mundial 2026, Liga Promerica y más",
   "lang": "es",
   "start_url": "/",
   "scope": "/",

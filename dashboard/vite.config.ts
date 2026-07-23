@@ -20,24 +20,33 @@ export default defineConfig(({ mode }) => ({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Bumpear `version` fuerza al SW a regenerar el precache y descartar
+      // la versión vieja cuando el cliente recibe la actualización.
+      // Incrementar cuando hagamos cambios significativos en el bundle.
+      version: '1.1.0-multicomp',
       includeAssets: ['favicon.svg'],
-      manifest: {
-        name: 'ScoreHub · Mundial 2026',
-        short_name: 'ScoreHub',
-        description: 'Centro de comando de la Copa Mundial FIFA 2026',
-        start_url: '/',
-        display: 'standalone',
-        background_color: '#070B15',
-        theme_color: '#070B15',
-        icons: [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml' }],
-      },
+      manifest: false, // usa /public/manifest.json (multi-comp friendly)
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        // Limpieza explícita de caches viejos en cada activación del SW.
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest, json}'],
         runtimeCaching: [
           {
             urlPattern: /^https?:\/\/imagecache\.365scores\.com\/.*/i,
             handler: 'CacheFirst',
             options: { cacheName: 'images', expiration: { maxEntries: 50 } },
+          },
+          {
+            // No cachear /api para siempre — solo stale-while-revalidate
+            urlPattern: /\/api\/football\/.*/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-football',
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 64, maxAgeSeconds: 60 * 5 },
+            },
           },
         ],
       },

@@ -912,7 +912,7 @@ async function syncTransfersForComp(comp) {
       if (!knownIds.has(id)) {
         await pool.query(
           `INSERT INTO competitors (id, competition_id, name, data, updated_at)
-           VALUES ($1, $2, $3, $3::jsonb, $4)
+           VALUES ($1, $2, NULL, $3::jsonb, $4)
            ON CONFLICT (id) DO NOTHING`,
           [id, comp.id, JSON.stringify({ id }), new Date().toISOString()]
         );

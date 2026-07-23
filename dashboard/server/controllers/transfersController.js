@@ -85,9 +85,8 @@ async function getCompetitionTransfersSummary(req, res, next) {
     if (!resolved) return;
     const competitionId = resolved.competitionId;
 
-    // Solo equipos que pertenecen a esta competición (competition_id = $1).
-    // Excluye equipos externos (Bayern Munich en Premier, etc.) que aparecen
-    // como origen/destino en transfers pero no juegan en esta liga.
+    // Equipos que juegan en esta competición (basado en games, no en competitors.competition_id
+    // que la sync de transfers puede pisar accidentalmente).
     const { rows: teams } = await pool.query(
       `SELECT DISTINCT t.id, t.name, t.data
          FROM competitors t
@@ -96,7 +95,11 @@ async function getCompetitionTransfersSummary(req, res, next) {
           UNION
           SELECT target_id FROM competition_transfers WHERE competition_id = $1 AND target_id IS NOT NULL
         )
-          AND t.competition_id = $1`,
+          AND t.id IN (
+            SELECT home_competitor_id FROM games WHERE competition_id = $1
+            UNION
+            SELECT away_competitor_id FROM games WHERE competition_id = $1
+          )`,
       [competitionId]
     );
     const teamMap = new Map(teams.map(t => [Number(t.id), {

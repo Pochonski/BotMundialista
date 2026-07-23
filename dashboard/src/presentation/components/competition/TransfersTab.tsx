@@ -79,7 +79,7 @@ export function TransfersTab({ competitionId }: Props) {
 
                 {/* Expandible: detalle del equipo */}
                 {active && (
-                  <div className="bg-bg-elevated/10 border-border-card/30 border-t">
+                  <div className="bg-bg-elevated/20 border-border-card/20 border-t">
                     {/* Filtros */}
                     <div className="flex items-center gap-2 px-4 pt-3 pb-2">
                       <FilterButton
@@ -110,7 +110,7 @@ export function TransfersTab({ competitionId }: Props) {
                         <p className="font-body text-text-muted text-xs">Sin fichajes para este filtro</p>
                       </div>
                     ) : (
-                      <ul className="divide-border-card/40 divide-y">
+                      <ul>
                         {transfers
                           .filter(t => {
                             if (mode === 'arrivals') return t.targetId === selectedTeam
@@ -122,23 +122,23 @@ export function TransfersTab({ competitionId }: Props) {
                             return (
                               <li
                                 key={t.id}
-                                className="border-border-card/20 flex items-center justify-between gap-3 border-l-2 px-5 py-2.5"
+                                className="hover:bg-bg-elevated/30 flex items-center justify-between gap-2 border-l-2 border-accent-gold/30 bg-transparent px-5 py-2 last:pb-3"
                               >
-                                <div className="flex items-center gap-3">
-                                  <span
-                                    className={`font-body shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                                      isArrival
-                                        ? 'bg-accent-green/15 text-accent-green'
-                                        : 'bg-accent-red/15 text-accent-red'
-                                    }`}
-                                  >
-                                    {isArrival ? 'In' : 'Out'}
+                                <div className="flex min-w-0 items-center gap-2.5">
+                                  <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+                                    <svg className={`h-4 w-4 ${isArrival ? 'text-accent-green' : 'text-accent-red'}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                      {isArrival ? (
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                      ) : (
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                      )}
+                                    </svg>
                                   </span>
-                                  <div>
-                                    <p className="font-body text-text-primary text-sm font-medium">
-                                      {t.athleteName || (t.data && typeof t.data === 'object' ? (t.data as Record<string, unknown>).athleteName as string : null) || `Atleta #${t.athleteId}`}
+                                  <div className="min-w-0">
+                                    <p className="font-body truncate text-sm font-medium text-text-primary">
+                                      {t.athleteName || (t.data && typeof t.data === 'object' ? (t.data as Record<string, unknown>).athleteName as string : null) || `#${t.athleteId}`}
                                     </p>
-                                    <p className="font-body text-text-muted mt-0.5 text-[11px]">
+                                    <p className="font-body truncate text-[11px] text-text-muted">
                                       {isArrival ? 'Desde' : 'Hacia'}{' '}
                                       <span className="text-text-dim">
                                         {isArrival
@@ -147,14 +147,14 @@ export function TransfersTab({ competitionId }: Props) {
                                       </span>
                                       {t.price && (
                                         <>
-                                          {' '}
-                                          · <span className="text-accent-gold">{t.price}</span>
+                                          {' · '}
+                                          <span className="text-accent-gold">{t.price}</span>
                                         </>
                                       )}
                                     </p>
                                   </div>
                                 </div>
-                                <div className="text-text-dim font-mono text-[10px]">
+                                <div className="shrink-0 text-[10px] font-mono text-text-dim">
                                   {t.time ? new Date(t.time).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }) : ''}
                                 </div>
                               </li>

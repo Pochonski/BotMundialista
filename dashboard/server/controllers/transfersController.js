@@ -81,9 +81,18 @@ async function getCompetitionTransfersSummary(req, res, next) {
     if (!resolved) return;
     const competitionId = resolved.competitionId;
 
-    // Hydrate team info from competitors table.
+    // Hydrate team info from competitors table — buscamos TODOS los equipos
+    // involucrados en transfers de esta comp (origen o destino), no solo
+    // los que tengan competition_id = X (los transfers pueden incluir equipos
+    // externos como Bayern Munich, Real Madrid, etc.).
     const { rows: teams } = await pool.query(
-      `SELECT id, name, data FROM competitors WHERE competition_id = $1`,
+      `SELECT DISTINCT t.id, t.name, t.data
+         FROM competitors t
+        WHERE t.id IN (
+          SELECT origin_id FROM competition_transfers WHERE competition_id = $1 AND origin_id IS NOT NULL
+          UNION
+          SELECT target_id FROM competition_transfers WHERE competition_id = $1 AND target_id IS NOT NULL
+        )`,
       [competitionId]
     );
     const teamMap = new Map(teams.map(t => [Number(t.id), {

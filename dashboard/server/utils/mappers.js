@@ -321,6 +321,9 @@ function parseHistoryDoc(d, teamMap) {
   } else if (d.seasonName) {
     const m = String(d.seasonName).match(/(\d{4})/);
     if (m) year = parseInt(m[1], 10);
+  } else if (d.title) {
+    const m = String(d.title).match(/(\d{4})/);
+    if (m) year = parseInt(m[1], 10);
   }
   if (!year) year = SEASON_TO_YEAR[d.seasonNum] || (d.seasonNum ? d.seasonNum + 1930 - 1 : null);
 
@@ -331,6 +334,34 @@ function parseHistoryDoc(d, teamMap) {
   if (!host && d.seasonName) {
     const m = String(d.seasonName).match(/\d{4}\s+(.+)$/);
     if (m) host = m[1].trim();
+  }
+
+  // Champion lookup: el shape del upstream 365scores viene en DOS formas:
+  //  - Mundial: { champion: { name, competitorId }, runnerUp: {...} }
+  //  - Ligas con tabla: { entityId, values: [...] } sin nombre del campeón
+  // Si falta `champion.name` pero tenemos `entityId`, lo resolvemos desde el teamMap.
+  let champion = null;
+  if (d.champion && d.champion.name) {
+    champion = {
+      name: d.champion.name,
+      competitorId: d.champion.competitorId,
+      badgeUrl: d.champion.competitorId
+        ? images.getTeamBadgeUrl(d.champion.competitorId, teamMap[String(d.champion.competitorId)]?.imageVersion)
+        : null,
+    };
+  } else if (d.entityId && teamMap[String(d.entityId)]) {
+    const t = teamMap[String(d.entityId)];
+    champion = {
+      name: t.name,
+      competitorId: d.entityId,
+      badgeUrl: images.getTeamBadgeUrl(d.entityId, t.imageVersion),
+    };
+  } else if (participants[0]) {
+    champion = {
+      name: participants[0].name,
+      competitorId: participants[0].competitorId,
+      badgeUrl: participants[0].badgeUrl,
+    };
   }
 
   return {
@@ -349,23 +380,7 @@ function parseHistoryDoc(d, teamMap) {
       && gameData?.homeCompetitor?.score === gameData?.awayCompetitor?.score
       && gameData?.winner !== 0 ? true : null,
     penalties: gameData?.homeCompetitor?.penaltyScore != null || gameData?.awayCompetitor?.penaltyScore != null ? true : null,
-    champion: d.champion ? {
-      name: d.champion.name,
-      competitorId: d.champion.competitorId,
-      badgeUrl: d.champion.competitorId ? images.getTeamBadgeUrl(d.champion.competitorId, teamMap[String(d.champion.competitorId)]?.imageVersion) : null,
-    } : participants[0] ? {
-      name: participants[0].name,
-      competitorId: participants[0].competitorId,
-      badgeUrl: participants[0].badgeUrl,
-    } : (gameData?.homeCompetitor?.isWinner ? {
-      name: gameData.homeCompetitor.name,
-      competitorId: gameData.homeCompetitor.id,
-      badgeUrl: gameData.homeCompetitor.id ? images.getTeamBadgeUrl(gameData.homeCompetitor.id, teamMap[String(gameData.homeCompetitor.id)]?.imageVersion) : null,
-    } : (gameData?.awayCompetitor?.isWinner ? {
-      name: gameData.awayCompetitor.name,
-      competitorId: gameData.awayCompetitor.id,
-      badgeUrl: gameData.awayCompetitor.id ? images.getTeamBadgeUrl(gameData.awayCompetitor.id, teamMap[String(gameData.awayCompetitor.id)]?.imageVersion) : null,
-    } : null)),
+    champion,
     runnerUp: d.runnerUp ? {
       name: d.runnerUp.name,
       competitorId: d.runnerUp.competitorId,

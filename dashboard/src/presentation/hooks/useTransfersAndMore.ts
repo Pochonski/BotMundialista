@@ -46,7 +46,7 @@ export function useCompetitionTransfers(competitionId: number | null, teamId?: n
 
   /* eslint-disable react-hooks/exhaustive-deps */
   const fetch = useCallback(async (signal?: AbortSignal) => {
-    if (competitionId == null) {
+    if (competitionId == null || teamId == null) {
       setTransfers([])
       return
     }
@@ -55,7 +55,7 @@ export function useCompetitionTransfers(competitionId: number | null, teamId?: n
       const { apiClient } = await import('@/data/datasources/ApiClient')
       const { ENDPOINTS } = await import('@/infrastructure/config')
       const data = await apiClient.get<Transfer[]>(ENDPOINTS.competitionTransfers(competitionId), {
-        params: teamId != null ? { teamId: String(teamId) } : undefined,
+        params: { teamId: String(teamId) },
         signal,
       })
       if (!signal?.aborted) setTransfers(data ?? [])

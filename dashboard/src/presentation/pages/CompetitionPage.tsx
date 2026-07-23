@@ -254,8 +254,11 @@ export function CompetitionPage() {
     })
   }, [detail])
 
-  // Si el tab activo ya no es visible, redirige.
+  // Si el tab activo ya no es visible (después de que detail cargó), redirige.
+  // Esperar a que detail cargue evita redirigir cuando el detail es null
+  // y los tabs con requireFlag/showIf se filtran temporalmente.
   useEffect(() => {
+    if (detailLoading) return
     if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === activeTab)) {
       const first = visibleTabs[0].id
       setActiveTab(first)
@@ -263,7 +266,7 @@ export function CompetitionPage() {
         navigate(`/competicion/${competitionId}/${first}`, { replace: true })
       }
     }
-  }, [visibleTabs, activeTab, competitionId, navigate])
+  }, [visibleTabs, activeTab, competitionId, navigate, detailLoading])
 
   if (competitionId == null) {
     return (

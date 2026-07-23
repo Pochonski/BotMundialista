@@ -900,6 +900,25 @@ async function syncTransfersForComp(comp) {
       }
     }
 
+    // Asegurar que todo equipo referenciado en transfers tenga un registro
+    // en `competitors` (aunque sea mínimo), así nunca mostramos "Team X".
+    const allTeamIds = new Set();
+    for (const t of transfers) {
+      if (t.origin != null) allTeamIds.add(Number(t.origin));
+      if (t.target != null) allTeamIds.add(Number(t.target));
+    }
+    const knownIds = new Set(competitors.map(c => Number(c.id)));
+    for (const id of allTeamIds) {
+      if (!knownIds.has(id)) {
+        await pool.query(
+          `INSERT INTO competitors (id, competition_id, name, data, updated_at)
+           VALUES ($1, $2, $3, $3::jsonb, $4)
+           ON CONFLICT (id) DO NOTHING`,
+          [id, comp.id, JSON.stringify({ id }), new Date().toISOString()]
+        );
+      }
+    }
+
     // Replace transfers de esta comp (estrategia: DELETE + INSERT, simple).
     await pool.query(
       `DELETE FROM competition_transfers WHERE competition_id = $1`,

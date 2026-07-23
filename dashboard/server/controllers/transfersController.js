@@ -98,10 +98,32 @@ async function getCompetitionTransfersSummary(req, res, next) {
     const teamMap = new Map(teams.map(t => [Number(t.id), {
       id: Number(t.id),
       name: t.name,
-      shortName: t.data?.shortName,
+      shortName: t.data?.shortName ?? null,
       imageVersion: t.data?.imageVersion ?? 1,
       badgeUrl: images.getTeamBadgeUrl(t.id, t.data?.imageVersion ?? 1),
     }]));
+
+    // Colectamos equipo origen/destino de los transfers — necesarios para
+    // el nombre de equipos que no están en la tabla `competitors`.
+    const teamNamesFromTransfers = new Map();
+    const { rows: transferRows } = await pool.query(
+      `SELECT origin_id, target_id, data
+         FROM competition_transfers
+        WHERE competition_id = $1
+          AND (origin_id IS NOT NULL OR target_id IS NOT NULL)`,
+      [competitionId]
+    );
+    for (const tr of transferRows) {
+      const raw = typeof tr.data === 'object' && tr.data ? tr.data : {};
+      if (tr.origin_id != null && !teamMap.has(Number(tr.origin_id))) {
+        const name = raw.originName ?? raw.originShortName ?? null;
+        if (name) teamNamesFromTransfers.set(Number(tr.origin_id), name);
+      }
+      if (tr.target_id != null && !teamMap.has(Number(tr.target_id))) {
+        const name = raw.targetName ?? raw.targetShortName ?? null;
+        if (name) teamNamesFromTransfers.set(Number(tr.target_id), name);
+      }
+    }
 
     const { rows } = await pool.query(
       `SELECT team_id, arrivals, departures, (arrivals + departures) AS total
@@ -121,12 +143,16 @@ async function getCompetitionTransfersSummary(req, res, next) {
     const summary = rows
       .filter(r => r.team_id != null)
       .map(r => {
-        const t = teamMap.get(Number(r.team_id)) || { id: Number(r.team_id), name: `Team ${r.team_id}` };
+        const tid = Number(r.team_id);
+        const t = teamMap.get(tid);
+        const nameFromData = t?.name
+          || teamNamesFromTransfers.get(tid)
+          || null;
         return {
-          teamId: Number(r.team_id),
-          name: t.name,
-          shortName: t.shortName,
-          badgeUrl: t.badgeUrl,
+          teamId: tid,
+          name: nameFromData || `#${tid}`,
+          shortName: t?.shortName ?? null,
+          badgeUrl: images.getTeamBadgeUrl(tid, t?.data?.imageVersion ?? 1),
           arrivals: Number(r.arrivals),
           departures: Number(r.departures),
         };

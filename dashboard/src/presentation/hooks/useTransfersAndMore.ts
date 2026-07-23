@@ -214,15 +214,40 @@ export function useStandingsSeasons(competitionId: number | null) {
 
 export interface CompetitionInsights {
   competitionId: number
-  trends: Array<Record<string, unknown>>
-  suggestions: Array<Record<string, unknown>>
-  outrights: Record<string, unknown> | null
+  season: {
+    num: number
+    label: string | null
+    startDate: string | null
+    endDate: string | null
+  }
+  trends: { count: number; items: Array<Record<string, unknown>> }
+  suggestions: { count: number; items: Array<Record<string, unknown>> }
+  outrights: {
+    available: boolean
+    updatedAt: string | null
+    data: Record<string, unknown> | null
+  }
   topStats: {
     scorers: Array<{ athleteId: number; name: string; teamName?: string; value: number; photoUrl?: string }>
     assists: Array<{ athleteId: number; name: string; teamName?: string; value: number; photoUrl?: string }>
     ratings: Array<{ athleteId: number; name: string; teamName?: string; value: number; photoUrl?: string }>
+    updatedAt?: string
   } | null
-  upcoming: Array<Record<string, unknown>>
+  teamOfWeek: {
+    available: boolean
+    updatedAt?: string
+    formation?: string
+    players?: Array<{
+      name: string
+      shortName?: string
+      position?: string | null
+      jersey?: number | null
+      rating?: number | null
+      athleteId?: number | null
+      photoUrl?: string | null
+    }>
+  }
+  upcoming: { count: number; items: Array<Record<string, unknown>> }
 }
 
 /**

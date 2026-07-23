@@ -199,6 +199,10 @@ async function getCompetitionSeasons(req, res, next) {
  * tendencias, sugerencias (top upcoming games), outrights (campeón), top scorers
  * y próximos partidos destacados. Sirve para alimentar la pestaña "Análisis"
  * sin hacer 6 requests separados.
+ *
+ * Si una sección está vacía (porque la temporada aún no comienza), devolvemos
+ * `count: 0` o `null` en vez de `[]`, para que el frontend pueda mostrar
+ * un empty-state específico ("Se actualizará cuando arranque la temporada").
  */
 async function getCompetitionInsights(req, res, next) {
   try {
@@ -207,6 +211,7 @@ async function getCompetitionInsights(req, res, next) {
     const resolved = await resolveCompetition(req, res);
     if (!resolved) return;
     const competitionId = resolved.competitionId;
+    const comp = resolved.comp;
 
     // Tendencias (competition-level).
     const trendsRes = await pool.query(
@@ -224,21 +229,38 @@ async function getCompetitionInsights(req, res, next) {
     );
     const suggestions = suggRes.rows.map(r => r.data);
 
-    // Outrights (cuotas de campeón).
+    // Outrights (cuotas de campeón). El upstream puede devolver {} cuando la
+    // temporada aún no tiene apuestas futuras publicadas — distinguimos
+    // "sin datos" de "datos vacíos" devolviendo el objeto aunque esté vacío.
     const outrightRes = await pool.query(
-      'SELECT data FROM odds_outrights WHERE competition_id = $1',
+      'SELECT data, updated_at FROM odds_outrights WHERE competition_id = $1',
       [competitionId]
     );
-    const outrights = outrightRes.rows.map(r => r.data)[0] || null;
+    const outrights = {
+      available: outrightRes.rows.length > 0,
+      updatedAt: outrightRes.rows[0]?.updated_at ?? null,
+      data: outrightRes.rows[0]?.data ?? null,
+    };
 
-    // Top scorers (asistentes y rating también) desde tournament_stats.
+    // Top scorers / assists / ratings desde tournament_stats.
     const statsRes = await pool.query(
-      'SELECT data FROM tournament_stats WHERE competition_id = $1 ORDER BY season_num DESC LIMIT 1',
+      'SELECT data, updated_at FROM tournament_stats WHERE competition_id = $1 ORDER BY season_num DESC LIMIT 1',
       [competitionId]
     );
-    const topStats = statsRes.rows.length ? extractTopStats(statsRes.rows[0].data) : null;
+    const topStats = statsRes.rows.length
+      ? { ...extractTopStats(statsRes.rows[0].data), updatedAt: statsRes.rows[0].updated_at }
+      : null;
 
-    // Próximos partidos destacados (3 con mejor valor de apuesta).
+    // Team of the week (cached en tabla team_of_week).
+    const towRes = await pool.query(
+      'SELECT data, updated_at FROM team_of_week WHERE competition_id = $1',
+      [competitionId]
+    );
+    const teamOfWeek = towRes.rows.length
+      ? { available: true, updatedAt: towRes.rows[0].updated_at, ...extractTeamOfWeek(towRes.rows[0].data) }
+      : { available: false };
+
+    // Próximos partidos destacados.
     const gamesRes = await pool.query(
       `SELECT data FROM games
         WHERE competition_id = $1
@@ -251,15 +273,40 @@ async function getCompetitionInsights(req, res, next) {
 
     res.json({
       competitionId,
-      trends,
-      suggestions,
+      season: {
+        num: comp.seasonNum,
+        label: comp.seasonLabel,
+        startDate: comp.startDate,
+        endDate: comp.endDate,
+      },
+      trends: { count: trends.length, items: trends },
+      suggestions: { count: suggestions.length, items: suggestions },
       outrights,
       topStats,
-      upcoming,
+      teamOfWeek,
+      upcoming: { count: upcoming.length, items: upcoming },
     });
   } catch (err) {
     next(err);
   }
+}
+
+function extractTeamOfWeek(raw) {
+  const lineup = raw?.teamOfTheWeek?.lineup || raw?.teamOfWeek?.lineup || null;
+  if (!lineup) return null;
+  const formation = lineup.formation || '4-4-2';
+  const players = (lineup.members || []).map(m => ({
+    name: m.name,
+    shortName: m.shortName,
+    position: m.position?.name || m.positionName || null,
+    jersey: m.jerseyNumber ?? null,
+    rating: m.ranking ?? null,
+    athleteId: m.athleteId ?? m.id ?? null,
+    photoUrl: (m.athleteId || m.id)
+      ? `https://imagecache.365scores.com/image/upload/f_png,w_32,h_32,c_limit,q_auto:eco,dpr_3,r_max,c_thumb,g_face,z_0.65,d_Athletes:default.png/v${m.imageVersion || 26}/Athletes/NationalTeam/${m.athleteId || m.id}`
+      : null,
+  }));
+  return { formation, players };
 }
 
 /**

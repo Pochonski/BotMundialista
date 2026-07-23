@@ -2,7 +2,7 @@ require('dotenv').config();
 const { Pool } = require('pg');
 
 const poolConfig = {
-  max: parseInt(process.env.DB_POOL_MAX || '25', 10),
+  max: parseInt(process.env.DB_POOL_MAX || '10', 10),
   idleTimeoutMillis: 30000,
   maxUses: 7500,
   connectionTimeoutMillis: 10000,

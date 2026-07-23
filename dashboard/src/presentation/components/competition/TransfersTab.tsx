@@ -155,7 +155,9 @@ export function TransfersTab({ competitionId }: Props) {
                           <p className="font-body text-text-muted mt-0.5 text-[11px]">
                             {isArrival ? 'Desde' : 'Hacia'}{' '}
                             <span className="text-text-dim">
-                              #{isArrival ? t.originId : t.targetId}
+                              {isArrival
+                                ? (t.originName || `#${t.originId}`)
+                                : (t.targetName || `#${t.targetId}`)}
                             </span>
                             {t.price && (
                               <>

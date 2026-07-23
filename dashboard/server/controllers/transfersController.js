@@ -20,9 +20,17 @@ async function getCompetitionTransfers(req, res, next) {
     const teamId = req.query.teamId != null ? parseInt(req.query.teamId, 10) : null;
 
     let rows;
-    const query = `SELECT ct.*, a.name AS athlete_name, a.data->>'shortName' AS athlete_short_name
+    const query = `SELECT ct.*,
+                          a.name AS athlete_name,
+                          a.data->>'shortName' AS athlete_short_name,
+                          o.name AS origin_name,
+                          o.data->>'shortName' AS origin_short_name,
+                          t.name AS target_name,
+                          t.data->>'shortName' AS target_short_name
                      FROM competition_transfers ct
-                LEFT JOIN athletes a ON a.id = ct.athlete_id`;
+                LEFT JOIN athletes a ON a.id = ct.athlete_id
+                LEFT JOIN competitors o ON o.id = ct.origin_id
+                LEFT JOIN competitors t ON t.id = ct.target_id`;
     if (teamId) {
       const { rows: r } = await pool.query(
         `${query}
@@ -58,7 +66,9 @@ async function getCompetitionTransfers(req, res, next) {
       athleteName: r.athlete_name || null,
       athleteShortName: r.athlete_short_name || null,
       originId: r.origin_id != null ? Number(r.origin_id) : null,
+      originName: r.origin_name || null,
       targetId: r.target_id != null ? Number(r.target_id) : null,
+      targetName: r.target_name || null,
       time: r.time,
       price: r.price,
       positionId: r.position_id != null ? Number(r.position_id) : null,

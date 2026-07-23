@@ -57,9 +57,9 @@ VALUES
   (17, 'Serie A', 'Serie A', 3, 'Italia',
    125, '2026/27', '2026-08-22', '2027-05-30',
    TRUE, TRUE, 50, FALSE, TRUE, TRUE),
-  -- Bundesliga (Germany) — comp id=25, season=86
+  -- Bundesliga (Germany) — comp id=25, season=118 (current)
   (25, 'Bundesliga', 'Bundesliga', 4, 'Alemania',
-   86, '2026/27', '2026-08-21', '2027-05-22',
+   118, '2026/27', '2026-08-21', '2027-05-22',
    TRUE, TRUE, 60, FALSE, TRUE, TRUE),
   -- Ligue 1 (France) — comp id=35, season=94
   (35, 'Ligue 1', 'Ligue 1', 5, 'Francia',

@@ -257,17 +257,47 @@ async function syncCompetitionHistoryForComp(comp) {
   log(`[comp=${comp.id}] Fetching competition history...`);
   try {
     const data = await api.getCompetitionHistory(comp.id);
+    // El upstream 365scores usa DOS shapes distintos para history:
+    //  - Mundial: { docs: [...] } con cada doc siendo una season completa
+    //  - Ligas con tabla: { table: { rows: [{seasonNum, title, entityId, ...}, ...] } }
+    // El shape `table.rows` es el más común; cada row es una entrada histórica
+    // con `entityId` = campeón de esa temporada, `values` = stats.
     const docs = data?.docs ?? [];
-    const rows = docs.map(d => ({
-      competition_id: comp.id,
-      season_num: d.seasonNum ?? null,
-      data: JSON.stringify(d),
-      updated_at: new Date().toISOString(),
-    }));
-    if (rows.length) {
-      await upsertMany('competition_history', ['competition_id', 'season_num'], rows);
+    const tableRows = data?.table?.rows ?? [];
+    const historyRows = [];
+
+    if (docs.length) {
+      for (const d of docs) {
+        historyRows.push({
+          competition_id: comp.id,
+          season_num: d.seasonNum ?? null,
+          champion_entity_id: d.entityId ?? null,
+          title: d.title ?? null,
+          // Stringify values para que pg reciba un JSON válido y no un array JS
+          // (que pg serializa como array PG `{...}` y rompe el cast JSONB).
+          values: d.values != null ? JSON.stringify(d.values) : null,
+          data: JSON.stringify(d),
+          updated_at: new Date().toISOString(),
+        });
+      }
     }
-    log(`[comp=${comp.id}] Synced ${rows.length} history docs`);
+    if (tableRows.length) {
+      for (const r of tableRows) {
+        historyRows.push({
+          competition_id: comp.id,
+          season_num: r.seasonNum ?? null,
+          champion_entity_id: r.entityId ?? null,
+          title: r.title ?? null,
+          values: r.values != null ? JSON.stringify(r.values) : null,
+          data: JSON.stringify(r),
+          updated_at: new Date().toISOString(),
+        });
+      }
+    }
+    if (historyRows.length) {
+      await upsertMany('competition_history', ['competition_id', 'season_num'], historyRows);
+    }
+    log(`[comp=${comp.id}] Synced ${historyRows.length} history docs (${docs.length} docs + ${tableRows.length} table rows)`);
   } catch (e) {
     log(`[comp=${comp.id}] Error syncing competition history:`, e.message);
   }

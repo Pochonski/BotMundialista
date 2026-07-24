@@ -70,19 +70,19 @@ export function TeamDetailPage() {
   }
 
   // Stats rápidas: contar W/D/L en forma reciente.
-  const formStats = useMemo(() => {
-    let w = 0, d = 0, l = 0
-    for (const g of recentForm) {
-      const homeId = g.homeCompetitor?.id
-      const awayId = g.awayCompetitor?.id
-      const oc = g.outcome
-      if (oc === undefined) continue
-      if (oc === 3) d++
-      else if ((oc === 1 && homeId === teamId) || (oc === 2 && awayId === teamId)) w++
-      else if ((oc === 1 && awayId === teamId) || (oc === 2 && homeId === teamId)) l++
-    }
-    return { w, d, l }
-  }, [recentForm, teamId])
+  // Cálculo directo (no useMemo) — es barato y respeta Rules of Hooks
+  // al no declararse después de un early return.
+  let formW = 0, formD = 0, formL = 0
+  for (const g of recentForm) {
+    const homeId = g.homeCompetitor?.id
+    const awayId = g.awayCompetitor?.id
+    const oc = g.outcome
+    if (oc === undefined) continue
+    if (oc === 3) formD++
+    else if ((oc === 1 && homeId === teamId) || (oc === 2 && awayId === teamId)) formW++
+    else if ((oc === 1 && awayId === teamId) || (oc === 2 && homeId === teamId)) formL++
+  }
+  const formStats = { w: formW, d: formD, l: formL }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">

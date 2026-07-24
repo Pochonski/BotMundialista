@@ -98,22 +98,22 @@ async function getCompetitionTransfersSummary(req, res, next) {
     if (!resolved) return;
     const competitionId = resolved.competitionId;
 
-    // Equipos que juegan en esta competición — basado en games, no en
-    // competitors.competition_id (que la sync de transfers puede pisar).
+    // Equipos que juegan en esta competición — basados en la junction table
+    // `competition_competitors` (Phase 5 migration 018). Reemplaza la query
+    // por `games` que era ineficiente y limitada a equipos con partidos
+    // programados.
     const { rows: teams } = await db.execAdvanced(
       `SELECT DISTINCT t.id, t.name, t.data
          FROM competitors t
-        WHERE t.id IN (
-          SELECT origin_id FROM competition_transfers WHERE competition_id = $1 AND origin_id IS NOT NULL
-          UNION
-          SELECT target_id FROM competition_transfers WHERE competition_id = $1 AND target_id IS NOT NULL
-        )
+         JOIN competition_competitors cc ON cc.competitor_id = t.id
+        WHERE cc.competition_id = $1
+          AND cc.season_num = $2
           AND t.id IN (
-            SELECT home_competitor_id FROM games WHERE competition_id = $1
+            SELECT origin_id FROM competition_transfers WHERE competition_id = $1 AND origin_id IS NOT NULL
             UNION
-            SELECT away_competitor_id FROM games WHERE competition_id = $1
+            SELECT target_id FROM competition_transfers WHERE competition_id = $1 AND target_id IS NOT NULL
           )`,
-      [competitionId]
+      [competitionId, resolved.seasonNum]
     );
     const teamMap = new Map(teams.map(t => [Number(t.id), {
       id: Number(t.id),

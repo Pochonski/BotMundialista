@@ -164,6 +164,124 @@ async function upsertGames(games) {
   await upsertMany('games', 'id', rows);
 }
 
+/**
+ * Mantiene la tabla junction `competition_competitors` derivada de un set
+ * de standings responses (un upsert por season).
+ */
+async function upsertCompetitionCompetitorsFromStandings(competitionId, seasonNum, stages) {
+  if (!Number.isFinite(competitionId) || !Number.isFinite(seasonNum)) return;
+  const seen = new Set();
+  const compId = competitionId;
+  const season = seasonNum;
+  const now = new Date().toISOString();
+  const compIds = [];
+  const competitorIds = [];
+  const seasonNums = [];
+  const sources = [];
+
+  for (const stage of stages) {
+    const stageNum = Number(stage.num ?? stage.stageNum);
+    const rows = stage.rows || [];
+    for (const row of rows) {
+      const cid = Number(row.competitor?.id);
+      if (!Number.isFinite(cid)) continue;
+      const key = `${compId}-${cid}-${season}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      compIds.push(compId);
+      competitorIds.push(cid);
+      seasonNums.push(season);
+      sources.push('standings');
+    }
+    if (!Number.isFinite(stageNum)) continue;
+  }
+  if (compIds.length === 0) return;
+  await pool.query(
+    `INSERT INTO competition_competitors
+       (competition_id, competitor_id, season_num, source, last_seen_at)
+     SELECT * FROM UNNEST($1::int[], $2::int[], $3::int[], $4::text[], $5::timestamptz[])
+     ON CONFLICT (competition_id, competitor_id, season_num) DO UPDATE
+       SET last_seen_at = EXCLUDED.last_seen_at`,
+    [
+      compIds,
+      competitorIds,
+      seasonNums,
+      sources,
+      competitorIds.map(() => now),
+    ]
+  );
+}
+async function upsertCompetitionCompetitorsFromGames(games) {
+  if (!games?.length) return;
+  // Dedupe by (competition, competitor, season) keeping one row.
+  const seen = new Set();
+  const rows = [];
+  const now = new Date().toISOString();
+  for (const g of games) {
+    const compId = Number(g.competitionId);
+    const season = Number(g.seasonNum);
+    if (!Number.isFinite(compId) || !Number.isFinite(season)) continue;
+    const homeId = g.homeCompetitor?.id ?? g.homeCompetitorId;
+    const awayId = g.awayCompetitor?.id ?? g.awayCompetitorId;
+    const stage = Number(g.stage ?? null);
+    const group = Number(g.groupNum ?? null);
+
+    if (Number.isFinite(homeId)) {
+      const key = `${compId}-${homeId}-${season}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        rows.push({
+          competition_id: compId,
+          competitor_id: homeId,
+          season_num: season,
+          stage_num: Number.isFinite(stage) ? stage : null,
+          group_id: Number.isFinite(group) ? group : null,
+          source: 'games',
+          joined_at: now,
+          last_seen_at: now,
+        });
+      }
+    }
+    if (Number.isFinite(awayId)) {
+      const key = `${compId}-${awayId}-${season}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        rows.push({
+          competition_id: compId,
+          competitor_id: awayId,
+          season_num: season,
+          stage_num: Number.isFinite(stage) ? stage : null,
+          group_id: Number.isFinite(group) ? group : null,
+          source: 'games',
+          joined_at: now,
+          last_seen_at: now,
+        });
+      }
+    }
+  }
+  if (!rows.length) return;
+  // Upsert into competition_competitors. Use Postgres-specific ON CONFLICT.
+  await pool.query(
+    `INSERT INTO competition_competitors
+       (competition_id, competitor_id, season_num, stage_num, group_id, source, joined_at, last_seen_at)
+     SELECT * FROM UNNEST($1::int[], $2::int[], $3::int[], $4::int[], $5::int[], $6::text[], $7::timestamptz[], $8::timestamptz[])
+     ON CONFLICT (competition_id, competitor_id, season_num) DO UPDATE
+       SET last_seen_at = EXCLUDED.last_seen_at,
+           stage_num = COALESCE(EXCLUDED.stage_num, competition_competitors.stage_num),
+           group_id = COALESCE(EXCLUDED.group_id, competition_competitors.group_id)`,
+    [
+      rows.map(r => r.competition_id),
+      rows.map(r => r.competitor_id),
+      rows.map(r => r.season_num),
+      rows.map(r => r.stage_num),
+      rows.map(r => r.group_id),
+      rows.map(r => r.source),
+      rows.map(r => r.joined_at),
+      rows.map(r => r.last_seen_at),
+    ]
+  );
+}
+
 // ============================================================================
 // Per-competition sync functions (each receives a `comp` object).
 // ============================================================================
@@ -183,6 +301,7 @@ async function syncGamesForComp(comp) {
     });
     const games = (data?.games ?? []).filter(g => Number(g.competitionId) === comp.id);
     await upsertGames(games);
+    if (games.length) await upsertCompetitionCompetitorsFromGames(games);
     log(`[comp=${comp.id}] Synced ${games.length} games`);
   } catch (e) {
     logErr(`[comp=${comp.id}] Error syncing games: ${e.message}`);
@@ -200,6 +319,7 @@ async function syncLiveGamesForComp(comp) {
     const data = await api.getGamesCurrent(comp.id);
     const games = data?.games ?? [];
     await upsertGames(games);
+    if (games.length) await upsertCompetitionCompetitorsFromGames(games);
     log(`[comp=${comp.id}] Synced ${games.length} live games`);
   } catch (e) {
     logErr(`[comp=${comp.id}] Error syncing live games: ${e.message}`);
@@ -216,6 +336,7 @@ async function syncGamesResultsForComp(comp) {
     const data = await api.getGamesResults(comp.id);
     const games = data?.games ?? [];
     await upsertGames(games);
+    if (games.length) await upsertCompetitionCompetitorsFromGames(games);
     log(`[comp=${comp.id}] Synced ${games.length} results`);
   } catch (e) {
     logErr(`[comp=${comp.id}] Error syncing results: ${e.message}`);
@@ -232,6 +353,7 @@ async function syncFixturesForComp(comp) {
     const data = await api.getFixtures(comp.id);
     const games = data?.games ?? [];
     await upsertGames(games);
+    if (games.length) await upsertCompetitionCompetitorsFromGames(games);
     log(`[comp=${comp.id}] Synced ${games.length} fixtures`);
   } catch (e) {
     logErr(`[comp=${comp.id}] Error syncing fixtures: ${e.message}`);
@@ -271,13 +393,16 @@ async function syncStandingsForComp(comp) {
         updated_at: new Date().toISOString(),
       }];
       await upsertMany('standings', ['competition_id', 'stage_num', 'season_num'], rows);
+      // Mantiene la junction table sincronizada con los competidores del stage.
+      if (Array.isArray(data?.standings)) {
+        await upsertCompetitionCompetitorsFromStandings(comp.id, comp.seasonNum, data.standings);
+      }
     }
 
     // Fetch con withSeasonsFilter=true una vez para guardar seasonsFilter.
     try {
       const sf = await api.getStandings(comp.id, 1, comp.seasonNum, { withSeasonsFilter: true });
       if (sf?.seasonsFilter) {
-        // Update el row más reciente con seasonsFilter.
         const rows = [{
           competition_id: comp.id,
           stage_num: 1,
@@ -286,6 +411,9 @@ async function syncStandingsForComp(comp) {
           updated_at: new Date().toISOString(),
         }];
         await upsertMany('standings', ['competition_id', 'stage_num', 'season_num'], rows);
+        if (Array.isArray(sf?.standings)) {
+          await upsertCompetitionCompetitorsFromStandings(comp.id, comp.seasonNum, sf.standings);
+        }
       }
     } catch (_) { /* not critical */ }
 
@@ -793,6 +921,27 @@ async function syncCatalog() {
             await upsertCompetitorCanonical(client, row);
           }
         });
+        // Re-syncing competition_competitors — when competitors get rebuilt
+        // their relation to the comp might have shifted. We keep the
+        // season-specific entries from games/standings sync that ran earlier
+        // in this boot, but add a fresh upsert for the season that's passed
+        // through forEachActive so the junction stays current.
+        // Only upsert, never DELETE — historical rows from past syncs survive.
+        for (const c of comps) {
+          const compData = competitorsByComp.get(c.id);
+          if (compData) {
+            // Best-effort: insert from catalog so competition_competitors has
+            // a "catalog-source" hint for the active season.
+            await pool.query(
+              `INSERT INTO competition_competitors
+                (competition_id, competitor_id, season_num, source, last_seen_at)
+               VALUES ($1, $2, $3, 'sync', now())
+               ON CONFLICT (competition_id, competitor_id, season_num)
+               DO UPDATE SET last_seen_at = now()`,
+              [c.id, Number(compData.competitor.id), c.seasonNum]
+            );
+          }
+        }
       } catch (err) {
         logErr(`catalog competitors txn failed: ${err.message}`);
       }

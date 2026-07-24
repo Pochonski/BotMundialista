@@ -37,7 +37,7 @@ Asistente de fútbol y apuestas multi-competición, con tres interfaces integrad
 - **NLU**: Gemini 2.5 Flash parsea español natural → intent.
 - **OCR**: Tesseract.js extrae texto de cupones de apuestas.
 - **Backend API**: Express + Helmet + CORS + rate-limit + Pino.
-- **Frontend**: React 19 + TypeScript + Tailwind 4 + Zod 4 (Clean Architecture).
+- **Frontend**: React 19 + TypeScript + Tailwind 4 + Zod 4 (Clean Architecture). Data fetching pasa por **TanStack Query** (cache, dedupe, refetch on focus, polling configurable).
 - **DB**: Supabase PostgreSQL vía dos caminos:
   - **Supabase JS (HTTP)** cuando `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` están en env (default en Vercel): sin conexiones persistentes, ideal para serverless.
   - **pg Pool** (fallback): pool con `max=1`, usado para queries complejas (CTE, JOINs, JSONB) vía `db.execAdvanced()`.
@@ -51,7 +51,7 @@ Asistente de fútbol y apuestas multi-competición, con tres interfaces integrad
 
 - **Runtime**: Node.js 18+ (CommonJS en raíz, ESM en dashboard).
 - **Bot**: `node-telegram-bot-api`, WhatsApp legacy (inactivo por defecto).
-- **Frontend**: React 19, React Router 7, Vite 6, TypeScript, Tailwind 4, Zod 4.
+- **Frontend**: React 19, React Router 7, Vite 6, TypeScript, Tailwind 4, Zod 4, **TanStack Query 5** (data fetching, cache, mutations).
 - **DB**: Supabase PostgreSQL, `pg`, sin ORM.
 - **Logs**: `pino` + `pino-http` + `pino-pretty`.
 - **Seguridad**: `helmet`, `express-rate-limit`, CORS allowlist.
@@ -118,6 +118,15 @@ cd dashboard && npm run dev # frontend Vite (puerto 5173, proxy /api → 3002)
 - WhatsApp: **legacy, inactivo** (se mantiene el código, no se invierte).
 - Cosmos DB: **eliminado** (migrado a Supabase).
 - Azure App Service: **eliminado** (migrado a Vercel).
+- Supabase JS HTTP wrapper: **code completo**, **activación pendiente en Vercel** (agregar `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` como env vars — ver `docs/migration-supabase-vercel.md § 11`).
+
+## Notas arquitectónicas
+
+- **Frontend data fetching**: todos los hooks `useXxx` en `dashboard/src/presentation/hooks/` usan TanStack Query 5 internamente (preservando el shape externo de cada uno). El `QueryClient` se configura en `src/main.tsx` con `staleTime: 30s`, `refetchOnWindowFocus: true`, `retry: 1`. Refetch de live games cada 30s está configurado vía `refetchInterval` en `useLiveGames`.
+- **Backend DB**: `database/db.js` ofrece dos vías:
+  - `db.query/insert/upsert/update/remove` → Supabase JS (PostgREST HTTP, serverless-friendly, sin conexiones persistentes)
+  - `db.execAdvanced` → `pg.Pool(max=1)` para queries con CTE/JSONB/multi-JOIN
+  - El wrapper cae automáticamente a pg cuando `SUPABASE_URL` no está configurado (ver `scripts/check-supabase-config.js`).
 
 ## Licencia
 

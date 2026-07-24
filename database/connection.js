@@ -44,4 +44,38 @@ async function testConnection() {
   }
 }
 
-module.exports = { pool, testConnection };
+/**
+ * Run `fn(client)` inside a BEGIN/COMMIT transaction. If `fn` throws,
+ * the transaction is rolled back and the error propagates. The pooled
+ * client is always released.
+ *
+ * Use for any multi-statement write that must be atomic (e.g. a
+ * DELETE followed by INSERT where partial failure would leave the cache
+ * half-populated).
+ *
+ * Example:
+ *   await withTransaction(async (client) => {
+ *     await client.query('DELETE FROM foo WHERE scope = $1', [scope]);
+ *     await client.query('INSERT INTO foo (...) VALUES (...)', [...]);
+ *   });
+ */
+async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      console.error('withTransaction: rollback failed:', rollbackErr.message);
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { pool, testConnection, withTransaction };

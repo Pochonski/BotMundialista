@@ -1,4 +1,4 @@
-const { pool } = require('../../../database/connection');
+const db = require('../../../database/db');
 const images = require('../../../services/images');
 const scores365 = require('../../../services/scores365Service');
 const { resolveCompetition, getActiveCompetitions, getActiveCompetitionIds, loadActiveCompetitions } = require('../utils/competition');
@@ -7,8 +7,12 @@ const DEFAULT_SEASON = parseInt(process.env.PRIMARY_SEASON || '25', 10);
 
 async function getCountries(req, res, next) {
   try {
-    const { rows } = await pool.query('SELECT id, name FROM countries ORDER BY name');
-    const countries = rows.map(r => ({
+    const { data, error } = await db.query('countries', {
+      select: 'id, name',
+      order: { column: 'name', asc: true },
+    });
+    if (error) throw error;
+    const countries = (data || []).map(r => ({
       id: r.id,
       name: r.name || '',
       flagUrl: images.getCountryFlagUrl(r.id),
@@ -29,8 +33,13 @@ async function getTournamentInfo(req, res, next) {
     if (!resolved) return;
     const { competitionId, seasonNum, comp } = resolved;
 
-    const { rows } = await pool.query('SELECT data FROM competitions WHERE id = $1', [competitionId]);
-    if (!rows.length) {
+    const { data, error } = await db.query('competitions', {
+      select: 'data',
+      eq: { id: competitionId },
+      maybeSingle: true,
+    });
+    if (error) throw error;
+    if (!data) {
       return res.json({
         id: competitionId,
         name: comp.displayName,
@@ -38,8 +47,8 @@ async function getTournamentInfo(req, res, next) {
         format: 'Sin detalle disponible',
       });
     }
-    const clist = rows[0].data?.competitions;
-    const c = Array.isArray(clist) ? clist[0] : rows[0].data?.competition;
+    const clist = data.data?.competitions;
+    const c = Array.isArray(clist) ? clist[0] : data.data?.competition;
     if (!c) {
       return res.json({
         id: competitionId,
@@ -133,9 +142,14 @@ async function getCompetitionDetail(req, res, next) {
     if (!comp) return res.status(404).json({ error: 'Competición no disponible' });
 
     // 1. Cache DB
-    const { rows } = await pool.query('SELECT data FROM competitions WHERE id = $1', [id]);
-    if (rows.length) {
-      const c = rows[0].data?.competitions?.[0] || rows[0].data?.competition;
+    const { data, error: dbErr } = await db.query('competitions', {
+      select: 'data',
+      eq: { id },
+      maybeSingle: true,
+    });
+    if (dbErr) throw dbErr;
+    if (data) {
+      const c = data.data?.competitions?.[0] || data.data?.competition;
       if (c) {
         return res.json({
           ...comp,
@@ -177,8 +191,13 @@ async function getCompetitionSeasons(req, res, next) {
     const { byId } = await loadActiveCompetitions();
     if (!byId.has(id)) return res.status(404).json({ error: 'Competición no disponible' });
 
-    const { rows } = await pool.query('SELECT data FROM competitions WHERE id = $1', [id]);
-    const c = rows[0]?.data?.competitions?.[0] || rows[0]?.data?.competition;
+    const { data, error: dbErr } = await db.query('competitions', {
+      select: 'data',
+      eq: { id },
+      maybeSingle: true,
+    });
+    if (dbErr) throw dbErr;
+    const c = data?.data?.competitions?.[0] || data?.data?.competition;
     if (c?.seasons?.length) return res.json(c.seasons);
 
     try {
@@ -203,6 +222,10 @@ async function getCompetitionSeasons(req, res, next) {
  * Si una sección está vacía (porque la temporada aún no comienza), devolvemos
  * `count: 0` o `null` en vez de `[]`, para que el frontend pueda mostrar
  * un empty-state específico ("Se actualizará cuando arranque la temporada").
+ *
+ * Implementación Fase 4: cada sección usa Supabase JS (HTTP) cuando la
+ * query es simple, y cae a execAdvanced (pg) cuando necesita filtros
+ * sobre JSONB o rangos sobre datos compuestos.
  */
 async function getCompetitionInsights(req, res, next) {
   try {
@@ -213,55 +236,66 @@ async function getCompetitionInsights(req, res, next) {
     const competitionId = resolved.competitionId;
     const comp = resolved.comp;
 
-    // Tendencias (competition-level).
-    const trendsRes = await pool.query(
-      `SELECT data FROM trends WHERE scope = 'competition' AND entity_id = $1
-         ORDER BY (data->>'percentage')::numeric DESC NULLS LAST LIMIT 10`,
-      [competitionId]
+    // Tendencias (competition-level). El ORDER BY sobre JSONB no se puede
+    // expresar con PostgREST simple, así que usamos execAdvanced.
+    const trendsRows = await db.execAdvanced(
+      `SELECT data FROM trends
+        WHERE scope = $1 AND entity_id = $2
+        ORDER BY (data->>'percentage')::numeric DESC NULLS LAST
+        LIMIT 10`,
+      ['competition', competitionId]
     );
-    const trends = trendsRes.rows.map(r => r.data);
+    const trends = trendsRows.map(r => r.data);
 
-    // Sugerencias (top upcoming games cacheados en game_suggestions).
-    const suggRes = await pool.query(
-      `SELECT data FROM game_suggestions WHERE competition_id = $1
-         ORDER BY rank NULLS LAST LIMIT 8`,
-      [competitionId]
-    );
-    const suggestions = suggRes.rows.map(r => r.data);
+    // Sugerencias — single-table with rank, fácil para Supabase.
+    const { data: suggData, error: suggErr } = await db.query('game_suggestions', {
+      select: 'data',
+      eq: { competition_id: competitionId },
+      order: { column: 'rank', asc: true },
+      limit: 8,
+    });
+    if (suggErr) throw suggErr;
+    const suggestions = (suggData || []).map(r => r.data);
 
-    // Outrights (cuotas de campeón). El upstream puede devolver {} cuando la
-    // temporada aún no tiene apuestas futuras publicadas — distinguimos
-    // "sin datos" de "datos vacíos" devolviendo el objeto aunque esté vacío.
-    const outrightRes = await pool.query(
-      'SELECT data, updated_at FROM odds_outrights WHERE competition_id = $1',
-      [competitionId]
-    );
+    // Outrights (cuotas de campeón). Single row PK lookup → Supabase.
+    const { data: outrightData, error: outrightErr } = await db.query('odds_outrights', {
+      select: 'data, updated_at',
+      eq: { competition_id: competitionId },
+      maybeSingle: true,
+    });
+    if (outrightErr) throw outrightErr;
     const outrights = {
-      available: outrightRes.rows.length > 0,
-      updatedAt: outrightRes.rows[0]?.updated_at ?? null,
-      data: outrightRes.rows[0]?.data ?? null,
+      available: !!outrightData,
+      updatedAt: outrightData?.updated_at ?? null,
+      data: outrightData?.data ?? null,
     };
 
     // Top scorers / assists / ratings desde tournament_stats.
-    const statsRes = await pool.query(
-      'SELECT data, updated_at FROM tournament_stats WHERE competition_id = $1 ORDER BY season_num DESC LIMIT 1',
-      [competitionId]
-    );
-    const topStats = statsRes.rows.length
-      ? { ...extractTopStats(statsRes.rows[0].data), updatedAt: statsRes.rows[0].updated_at }
+    const { data: statsData, error: statsErr } = await db.query('tournament_stats', {
+      select: 'data, updated_at',
+      eq: { competition_id: competitionId },
+      order: [{ column: 'season_num', asc: false }],
+      limit: 1,
+      maybeSingle: true,
+    });
+    if (statsErr) throw statsErr;
+    const topStats = statsData
+      ? { ...extractTopStats(statsData.data), updatedAt: statsData.updated_at }
       : null;
 
-    // Team of the week (cached en tabla team_of_week).
-    const towRes = await pool.query(
-      'SELECT data, updated_at FROM team_of_week WHERE competition_id = $1',
-      [competitionId]
-    );
-    const teamOfWeek = towRes.rows.length
-      ? { available: true, updatedAt: towRes.rows[0].updated_at, ...extractTeamOfWeek(towRes.rows[0].data) }
+    // Team of the week (cached en tabla team_of_week). Single row PK.
+    const { data: towData, error: towErr } = await db.query('team_of_week', {
+      select: 'data, updated_at',
+      eq: { competition_id: competitionId },
+      maybeSingle: true,
+    });
+    if (towErr) throw towErr;
+    const teamOfWeek = towData
+      ? { available: true, updatedAt: towData.updated_at, ...extractTeamOfWeek(towData.data) }
       : { available: false };
 
-    // Próximos partidos destacados.
-    const gamesRes = await pool.query(
+    // Próximos partidos destacados — filtro sobre start_time requiere pg.
+    const upcomingRows = await db.execAdvanced(
       `SELECT data FROM games
         WHERE competition_id = $1
           AND status_group = 2
@@ -269,7 +303,7 @@ async function getCompetitionInsights(req, res, next) {
         ORDER BY start_time ASC LIMIT 5`,
       [competitionId]
     );
-    const upcoming = gamesRes.rows.map(r => r.data);
+    const upcoming = upcomingRows.map(r => r.data);
 
     res.json({
       competitionId,

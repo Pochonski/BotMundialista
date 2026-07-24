@@ -42,6 +42,8 @@ app.use('/api/', rateLimit({
 app.get('/api/football/health', async (req, res) => {
   try {
     const { pool } = require('../../database/connection');
+    const { isEnabled: supabaseEnabled } = require('../../database/supabaseClient');
+    const dbStats = require('../../utils/dbStats');
     const r = await pool.query('SELECT NOW() as now');
     res.json({
       status: 'ok',
@@ -49,7 +51,9 @@ app.get('/api/football/health', async (req, res) => {
       cache: 'supabase',
       db: 'connected',
       dbTime: r.rows[0].now,
+      dbStrategy: supabaseEnabled ? 'http+pg-fallback' : 'pg-only',
       uptime: process.uptime(),
+      dbStats: dbStats.getStats(),
       timestamp: new Date().toISOString(),
     });
   } catch (e) {

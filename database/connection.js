@@ -1,14 +1,26 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 
+/**
+ * pg pool — kept for advanced SQL only (CTEs, transactions, multi-row INSERTs
+ * that PostgREST can't express). With Supabase JS HTTP (database/db.js)
+ * the bulk of traffic no longer goes through this pool, so we keep the
+ * upper bound conservative.
+ *
+ * Phase 4 of the refactor plan: most queries now use Supabase HTTP instead.
+ * This pool stays for queries like the CTE in transfers summary or the
+ * multi-row INSERTs in syncService. max=1 keeps us safe against Supavisor's
+ * 15-connection limit even when multiple Vercel serverless instances are
+ * hot concurrently (15 instances × 1 connection each = within budget).
+ */
 const poolConfig = {
-  max: parseInt(process.env.DB_POOL_MAX || '2', 10),
-  idleTimeoutMillis: 30000,
-  maxUses: 7500,
-  connectionTimeoutMillis: 10000,
+  max: parseInt(process.env.DB_POOL_MAX || '1', 10),
+  idleTimeoutMillis: 60000,
+  maxUses: 100,
+  connectionTimeoutMillis: 5000,
   statement_timeout: 30000,
   query_timeout: 30000,
-  application_name: 'scorehub',
+  application_name: 'scorehub-pg-fallback',
 };
 
 if (process.env.SUPABASE_DB_URL) {

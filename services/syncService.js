@@ -2,7 +2,7 @@ require('dotenv').config();
 const api = require('./scores365Service');
 const { pool, withTransaction } = require('../database/connection');
 const { getActiveCompetitions, forEachActive } = require('./syncCompetitions');
-const { logger } = require('../utils/logger');
+const logger = require('../utils/logger');
 
 // Logger por defecto para este módulo. Cada vez que se ejecuta un sync
 // completo se crea un child con su propio `syncRunId` para correlacionar
@@ -18,11 +18,12 @@ function newSyncRunId() {
 }
 
 function log(...args) {
-  logger.info({ syncRunId: currentSyncRunId, mod: 'sync' }, '[Sync]', ...args);
+  // pino expects (mergeObject, msg). Flatten rest args into a single message.
+  logger.info({ syncRunId: currentSyncRunId, mod: 'sync' }, '[Sync] ' + args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' '));
 }
 
 function logErr(...args) {
-  logger.error({ syncRunId: currentSyncRunId, mod: 'sync' }, '[Sync]', ...args);
+  logger.error({ syncRunId: currentSyncRunId, mod: 'sync' }, '[Sync] ' + args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' '));
 }
 
 async function upsertMany(table, conflictCols, rows) {

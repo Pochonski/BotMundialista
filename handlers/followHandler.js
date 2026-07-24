@@ -1,6 +1,7 @@
 require('dotenv').config();
 const context = require('../services/conversationContext');
 const { pool } = require('../database/connection');
+const db = require('../database/db');
 
 const MAX_FOLLOWS_PER_CHAT = 10;
 const DEFAULT_MODE = 'all_events';
@@ -12,12 +13,12 @@ const MODE_LABELS = {
 
 async function getTicketInfo(ticketId) {
   try {
-    const r = await pool.query(`
+    const r = await db.execAdvanced(`
       SELECT a.id, a.id_usuario, a.id_partido_api, a.estado, a.partido_extrado
       FROM apuestas a
       WHERE a.id = $1
     `, [parseInt(ticketId, 10)]);
-    return r.rows[0] || null;
+    return r[0] || null;
   } catch (e) {
     console.error('[followHandler] getTicketInfo error:', e.message);
     return null;
@@ -26,19 +27,19 @@ async function getTicketInfo(ticketId) {
 
 async function getFollowByTicketId(ticketId) {
   try {
-    const r = await pool.query(
+    const r = await db.execAdvanced(
       'SELECT ticket_id, game_id, chat_ids, mode, last_notified_status FROM bet_followers WHERE ticket_id = $1',
       [String(ticketId)]
     );
-    if (r.rows.length === 0) return null;
-    const row = r.rows[0];
+    if (r.length === 0) return null;
+    const row = r[0];
     row.chatIds = row.chat_ids;
     return row;
   } catch (_) { return null; }
 }
 
 async function upsertFollow(ticketIdStr, gameId, chatIds, mode, lastNotifiedStatus) {
-  await pool.query(`
+  await db.execAdvanced(`
     INSERT INTO bet_followers (ticket_id, game_id, chat_ids, mode, last_notified_status, updated_at)
     VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
     ON CONFLICT (ticket_id, mode)
@@ -50,7 +51,7 @@ async function upsertFollow(ticketIdStr, gameId, chatIds, mode, lastNotifiedStat
 }
 
 async function deleteFollow(ticketIdStr) {
-  await pool.query('DELETE FROM bet_followers WHERE ticket_id = $1', [ticketIdStr]);
+  await db.execAdvanced('DELETE FROM bet_followers WHERE ticket_id = $1', [ticketIdStr]);
 }
 
 async function followTicket(chatIdStr, ticketId, mode = DEFAULT_MODE) {
@@ -113,11 +114,11 @@ async function unfollowTicket(chatIdStr, ticketId) {
 
 async function listFollowed(chatIdStr) {
   try {
-    const r = await pool.query(
+    const r = await db.execAdvanced(
       "SELECT ticket_id, chat_ids, mode, game_id FROM bet_followers WHERE $1 = ANY(chat_ids)",
       [chatIdStr]
     );
-    const mine = r.rows;
+    const mine = r;
     if (mine.length === 0) {
       return { ok: true, message: '📭 No sigues ningún ticket todavía. Probá: "/follow 555" (con un ticket tuyo).' };
     }

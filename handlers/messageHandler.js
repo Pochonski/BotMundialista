@@ -1,6 +1,7 @@
 // Router principal de mensajes
 require('dotenv').config();
-const { pool, testConnection } = require('../database/connection');
+const { pool, testConnection, withTransaction } = require('../database/connection');
+const db = require('../database/db');
 const { ESTADOS_USUARIO, INTENTOS } = require('../utils/constants');
 const { parse } = require('./queryParser');
 const matchHandler = require('./matchHandler');
@@ -105,8 +106,13 @@ async function getUserData(userId) {
   }
 
   try {
-    const result = await pool.query('SELECT * FROM usuarios WHERE id = $1', [userId]);
-    return result.rows[0] || null;
+    const { data, error: err } = await db.query('usuarios', {
+      select: '*',
+      eq: { id: userId },
+      maybeSingle: true,
+    });
+    if (err) throw err;
+    return data || null;
   } catch (error) {
     console.error('Error getting user:', error.message);
     // Fallback a modo demo
@@ -137,8 +143,13 @@ async function aliasYaExiste(alias) {
   }
 
   try {
-    const result = await pool.query('SELECT id FROM usuarios WHERE alias = $1', [alias]);
-    return result.rows.length > 0;
+    const { data, error: err } = await db.query('usuarios', {
+      select: 'id',
+      eq: { alias },
+      limit: 1,
+    });
+    if (err) throw err;
+    return Array.isArray(data) && data.length > 0;
   } catch (error) {
     return false;
   }
@@ -159,10 +170,13 @@ async function registrarUsuario(userId, alias) {
   if (!dbAvailable) return true;
 
   try {
-    await pool.query(
-      'INSERT INTO usuarios (id, alias, fecha_registro, estado) VALUES ($1, $2, NOW(), $3)',
-      [userId, alias, ESTADOS_USUARIO.REGISTRADO]
-    );
+    const { error: err } = await db.upsert('usuarios', [{
+      id: userId,
+      alias,
+      fecha_registro: new Date().toISOString(),
+      estado: ESTADOS_USUARIO.REGISTRADO,
+    }], 'id');
+    if (err) throw err;
     return true;
   } catch (error) {
     console.error('Error registering user:', error.message);
@@ -408,7 +422,7 @@ async function messageHandler(client, message) {
   // Guardar en historial (ignorar si DB no disponible)
   if (dbAvailable) {
     try {
-      await pool.query(
+      await db.execAdvanced(
         'INSERT INTO historial_consultas (id_usuario, consulta, tipo, respuesta, fecha) VALUES ($1, $2, $3, $4, NOW())',
         [userId, text, parsed.intent, response]
       );

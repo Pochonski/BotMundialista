@@ -1,5 +1,6 @@
 // Servicio de notificaciones WhatsApp para apuestas
 const { pool } = require('../database/connection');
+const db = require('../database/db');
 const { getFlag, formatTeamWithFlag } = require('./countryFlagsService');
 
 let whatsappClient = null;
@@ -235,7 +236,7 @@ async function notificarFinApuesta(userId, apuesta, resultado) {
  */
 async function registrarEvento(apuestaId, tipoEvento, descripcion, datos = {}) {
   try {
-    await pool.query(
+    await db.execAdvanced(
       `INSERT INTO eventos_apuesta (id_apuesta, tipo_evento, descripcion, datos)
        VALUES ($1, $2, $3, $4)`,
       [apuestaId, tipoEvento, descripcion, JSON.stringify(datos)]

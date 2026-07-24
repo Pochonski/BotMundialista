@@ -7,6 +7,7 @@
 // cambiar cualquiera de los dos.
 const cron = require('node-cron');
 const { pool } = require('../database/connection');
+const db = require('../database/db');
 const cache = require('./mundialCache');
 const notificationService = require('./notificationService');
 
@@ -89,7 +90,7 @@ async function cicloEvaluacion() {
  * Obtiene todas las apuestas abiertas
  */
 async function obtenerApuestasAbiertas() {
-  const result = await pool.query(`
+  const result = await db.execAdvanced(`
     SELECT a.*,
            json_agg(
              json_build_object(
@@ -108,7 +109,7 @@ async function obtenerApuestasAbiertas() {
     ORDER BY a.fecha_creacion ASC
   `);
 
-  return result.rows;
+  return result;
 }
 
 /**
@@ -269,7 +270,7 @@ function getValorActual(seleccion, stats) {
  * Actualiza el estado de una selección
  */
 async function actualizarEstadoSeleccion(seleccionId, nuevoEstado, valorActual) {
-  await pool.query(
+  await db.execAdvanced(
     `UPDATE apuesta_selecciones SET estado = $1, valor_actual = $2 WHERE id = $3`,
     [nuevoEstado, valorActual, seleccionId]
   );
@@ -279,15 +280,15 @@ async function actualizarEstadoSeleccion(seleccionId, nuevoEstado, valorActual) 
  * Verifica si una apuesta está completa (todas las selecciones resueltas)
  */
 async function verificarApuestaCompleta(apuestaId) {
-  const result = await pool.query(`
+  const result = await db.execAdvanced(`
     SELECT COUNT(*) as total,
            COUNT(*) FILTER (WHERE estado != 'pendiente') as resueltas
     FROM apuesta_selecciones
     WHERE id_apuesta = $1
   `, [apuestaId]);
 
-  if (result.rows[0].total === result.rows[0].resueltas) {
-    await pool.query(
+  if (result[0].total === result[0].resueltas) {
+    await db.execAdvanced(
       `UPDATE apuestas SET estado = 'completada', fecha_cierre = NOW() WHERE id = $1`,
       [apuestaId]
     );
@@ -300,7 +301,7 @@ async function verificarApuestaCompleta(apuestaId) {
  */
 async function cerrarApuesta(apuesta, stats) {
   // Actualizar marcador final
-  await pool.query(`
+  await db.execAdvanced(`
     UPDATE apuestas SET
       estado = 'completada',
       marcador_local = $1,
@@ -310,15 +311,15 @@ async function cerrarApuesta(apuesta, stats) {
   `, [stats.goalsHome, stats.goalsAway, apuesta.id]);
 
   // Obtener selecciones pendientes y evaluarlas correctamente
-  const result = await pool.query(`
+  const result = await db.execAdvanced(`
     SELECT * FROM apuesta_selecciones
     WHERE id_apuesta = $1 AND estado = 'pendiente'
   `, [apuesta.id]);
 
   // Evaluar cada seleccion pendiente antes de marcar
-  for (const seleccion of result.rows) {
+  for (const seleccion of result) {
     const resultado = evaluarSeleccion(seleccion, stats, apuesta);
-    await pool.query(`
+    await db.execAdvanced(`
       UPDATE apuesta_selecciones SET estado = $1
       WHERE id = $2
     `, [resultado, seleccion.id]);

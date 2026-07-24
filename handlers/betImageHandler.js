@@ -1,5 +1,6 @@
 // Handler principal para procesar imágenes de apuestas
 const { pool, testConnection } = require('../database/connection');
+const db = require('../database/db');
 const ocrService = require('../services/ocrService');
 const { parseBetText, buscarPartidoReal, toJSON } = require('../services/betParserService');
 const { guardarImagen, generarNombreArchivo } = require('../services/imageStorageService');
@@ -113,7 +114,7 @@ async function procesarImagenApuesta(client, message, media) {
     // 5. Guardar en base de datos (primero para obtener ID)
     await safeReply('💾 Guardando apuesta...');
 
-    const result = await pool.query(`
+    const result = await db.execAdvanced(`
       INSERT INTO apuestas (
         id_usuario,
         partido_extrado,
@@ -145,14 +146,14 @@ async function procesarImagenApuesta(client, message, media) {
     const imageUrl = guardarImagen(mediaBuffer, filename);
 
     // Actualizar con URL de imagen
-    await pool.query(`
+    await db.execAdvanced(`
       UPDATE apuestas SET imagen_url = $1 WHERE id = $2
     `, [imageUrl, apuestaId]);
 
     // 6. Guardar selecciones
     if (datosApuesta.selecciones.length > 0) {
       for (const sel of datosApuesta.selecciones) {
-        await pool.query(`
+        await db.execAdvanced(`
           INSERT INTO apuesta_selecciones (
             id_apuesta, tipo_mercado, valor_seleccion, linea, estado
           ) VALUES ($1, $2, $3, $4, $5)
@@ -195,7 +196,7 @@ async function procesarImagenApuesta(client, message, media) {
  * Obtiene las apuestas de un usuario
  */
 async function getApuestasUsuario(userId) {
-  const result = await pool.query(`
+  const result = await db.execAdvanced(`
     SELECT a.*,
            json_agg(s.*) FILTER (WHERE s.id IS NOT NULL) as selecciones
     FROM apuestas a

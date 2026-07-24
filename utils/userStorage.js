@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { pool } = require('../database/connection');
+const db = require('../database/db');
 
 const FILE = path.join(__dirname, '..', 'userNames.json');
 const MAX_LEN = 100;
@@ -55,7 +56,7 @@ async function setAlias(userId, alias) {
 
   let dbResult = { synced: false };
   try {
-    await pool.query(
+    await db.execAdvanced(
       `INSERT INTO usuarios (id, alias, estado) VALUES ($1, $2, 'registrado')
        ON CONFLICT (id) DO UPDATE SET alias = EXCLUDED.alias`,
       [userId, v.alias]
@@ -114,12 +115,11 @@ async function clearUserData(userId) {
 
   // 2) DB
   try {
-    const r1 = await pool.query(`DELETE FROM equipos_seguidos WHERE id_usuario = $1`, [userId]);
-    result.equipos_seguidos = r1.rowCount;
-    const r2 = await pool.query(`DELETE FROM historial_consultas WHERE id_usuario = $1`, [userId]);
-    result.historial_consultas = r2.rowCount;
-    // Borrar también de tabla usuarios
-    await pool.query(`DELETE FROM usuarios WHERE id = $1`, [userId]);
+    const r1 = await db.execAdvanced(`DELETE FROM equipos_seguidos WHERE id_usuario = $1`, [userId]);
+    result.equipos_seguidos = r1.length;
+    const r2 = await db.execAdvanced(`DELETE FROM historial_consultas WHERE id_usuario = $1`, [userId]);
+    result.historial_consultas = r2.length;
+    await db.execAdvanced(`DELETE FROM usuarios WHERE id = $1`, [userId]);
   } catch (e) {
     // DB opcional
   }

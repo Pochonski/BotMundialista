@@ -3,6 +3,7 @@ const matchSearch = require('../services/matchSearch');
 const mundialCache = require('../services/mundialCache');
 const { getCompetitionName } = require('../services/competitionName');
 const { pool } = require('../database/connection');
+const db = require('../database/db');
 
 const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 
@@ -77,7 +78,7 @@ async function formatTipForGame(game) {
   let tipDoc = null;
 
   try {
-    const { rows } = await pool.query(
+    const { rows } = await db.execAdvanced(
       'SELECT data FROM trends WHERE scope = $1 AND game_id = $2',
       ['game', gameId]
     );
@@ -143,7 +144,7 @@ async function getTendencias(scope = 'competition', id = null, limit = 10) {
 
   let trends = [];
   try {
-    const { rows } = await pool.query(
+    const { rows } = await db.execAdvanced(
       'SELECT data FROM trends WHERE scope = $1 AND entity_id = $2',
       [safeScope, safeId]
     );
@@ -271,17 +272,17 @@ async function getStatsVivo(gameId) {
 
   let snapshot = null;
   try {
-    const r = await pool.query(
+    const r = await db.execAdvanced(
       "SELECT last_snapshot, updated_at FROM scores365_state WHERE game_id = $1",
       [gid]
     );
-    if (r.rows[0]?.last_snapshot) {
-      snapshot = r.rows[0].last_snapshot;
+    if (r[0]?.last_snapshot) {
+      snapshot = r[0].last_snapshot;
     }
   } catch (_) {}
 
   if (!snapshot || !Array.isArray(snapshot.statistics) || snapshot.statistics.length === 0) {
-    const { rows } = await pool.query('SELECT data FROM game_stats WHERE game_id = $1', [gid]);
+    const { rows } = await db.execAdvanced('SELECT data FROM game_stats WHERE game_id = $1', [gid]);
     if (rows.length && rows[0].data?.statistics?.length) {
       const liveStats = rows[0].data;
       snapshot = { statistics: liveStats.statistics, statisticsFilters: liveStats.statisticsFilters || [], lastUpdateId: liveStats.lastUpdateId, fetchedAt: new Date().toISOString() };
@@ -347,7 +348,7 @@ async function getAlineacion(gameId) {
 
   let overview = null;
   try {
-    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
+    const { rows } = await db.execAdvanced('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
     if (rows.length) overview = rows[0].data;
   } catch (_) {}
 
@@ -358,7 +359,7 @@ async function getAlineacion(gameId) {
     if (homeLineup.length === 0 && awayLineup.length === 0) {
       try {
         const matchupId = `${game.homeCompetitor?.id || 0}-${game.awayCompetitor?.id || 0}-${COMPETITION_ID}`;
-        const { rows: fresh } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
+        const { rows: fresh } = await db.execAdvanced('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
         if (fresh.length && fresh[0].data?.game?.homeCompetitor?.lineups?.members?.length) {
           g = fresh[0].data.game;
         }
@@ -440,7 +441,7 @@ async function getPrevia(gameId) {
 
   let pre = null;
   try {
-    const { rows } = await pool.query('SELECT data FROM game_pre_stats WHERE game_id = $1', [gid]);
+    const { rows } = await db.execAdvanced('SELECT data FROM game_pre_stats WHERE game_id = $1', [gid]);
     if (rows.length) pre = rows[0].data;
   } catch (_) {}
 
@@ -493,7 +494,7 @@ async function getH2H(gameId) {
 
   let h2h = null;
   try {
-    const { rows } = await pool.query('SELECT data FROM game_h2h WHERE game_id = $1', [gid]);
+    const { rows } = await db.execAdvanced('SELECT data FROM game_h2h WHERE game_id = $1', [gid]);
     if (rows.length) h2h = rows[0].data;
   } catch (_) {}
 
@@ -568,7 +569,7 @@ async function getPredicciones(gameId) {
 
   let pred = null;
   try {
-    const { rows } = await pool.query('SELECT data FROM predictions WHERE game_id = $1', [gid]);
+    const { rows } = await db.execAdvanced('SELECT data FROM predictions WHERE game_id = $1', [gid]);
     if (rows.length) pred = rows[0].data;
   } catch (_) {}
 
@@ -598,7 +599,7 @@ async function getPredicciones(gameId) {
 
 async function getFixture() {
   try {
-    const { rows } = await pool.query(
+    const { rows } = await db.execAdvanced(
       'SELECT data FROM games WHERE competition_id = $1 AND status_group = 2 ORDER BY start_time ASC LIMIT 20',
       [COMPETITION_ID]
     );
@@ -639,7 +640,7 @@ async function getFixture() {
 
 async function getOutrights() {
   try {
-    const { rows } = await pool.query('SELECT data FROM odds_outrights WHERE competition_id = $1', [COMPETITION_ID]);
+    const { rows } = await db.execAdvanced('SELECT data FROM odds_outrights WHERE competition_id = $1', [COMPETITION_ID]);
     if (!rows.length) {
       return `🏆 *CUOTAS OUTRIGHT*\n\nNo hay cuotas disponibles todavía.`;
     }
@@ -683,7 +684,7 @@ async function getOdds(gameId) {
 
   let doc = null;
   try {
-    const { rows } = await pool.query('SELECT data FROM odds_lines WHERE game_id = $1', [gid]);
+    const { rows } = await db.execAdvanced('SELECT data FROM odds_lines WHERE game_id = $1', [gid]);
     if (rows.length) doc = rows[0].data;
   } catch (_) {}
 

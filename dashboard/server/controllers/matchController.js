@@ -1,5 +1,20 @@
 const { pool } = require('../../../database/connection');
 const db = require('../../../database/db');
+
+/**
+ * Helper: SELECT data FROM <table> WHERE game_id = $1 (or any single
+ * game_id). Used by matchController hand-roll the detail page from
+ * the game_*_detail cache tables. Migrated to the HTTP wrapper.
+ */
+async function getGameDetailBy(table, gameId) {
+  const { data, error } = await db.query(table, {
+    select: 'data',
+    eq: { game_id: Number(gameId) },
+    maybeSingle: true,
+  });
+  if (error) throw error;
+  return data;
+}
 const scores365 = require('../../../services/scores365Service');
 const { enrichGame, enrichTrend, extractLineup, buildLineups, buildMatchupId, SCORE_STAT_IDS, MAJOR_STAT_IDS } = require('../utils/mappers');
 const { resolveCompetition, resolveCompetitionIds } = require('../utils/competition');
@@ -142,7 +157,7 @@ async function getMatches(req, res, next) {
       query += ' ORDER BY start_time ASC';
     }
 
-    const { rows } = await pool.query(query, params);
+    const rows = await db.execAdvanced(query, params);
     let games = rows.map(r => r.data);
 
     if (stage) {
@@ -169,11 +184,11 @@ async function getLiveMatches(req, res, next) {
       if (!resolved) return;
       compIds = [resolved.competitionId];
     }
-    const { rows } = await pool.query(
+    const liveRows = await db.execAdvanced(
       'SELECT data FROM games WHERE competition_id = ANY($1::int[]) AND status_group = 1 ORDER BY start_time DESC',
       [compIds]
     );
-    res.json(rows.map(r => enrichGame(r.data)));
+    res.json(liveRows.map(r => enrichGame(r.data)));
   } catch (err) {
     next(err);
   }
@@ -185,19 +200,21 @@ async function getFeaturedMatch(req, res, next) {
     if (!resolved) return;
     const cid = resolved.competitionId;
 
-    const { rows: live } = await pool.query(
+    const live = await db.execAdvanced(
       'SELECT data FROM games WHERE competition_id = $1 AND status_group = 1 LIMIT 1',
       [cid]
     );
     if (live.length) return res.json(enrichGame(live[0].data));
 
-    const { rows: upcoming } = await pool.query(
-      'SELECT data FROM games WHERE competition_id = $1 AND status_group = 2 AND start_time > NOW() - INTERVAL \'3 hours\' ORDER BY start_time ASC LIMIT 1',
+    const upcoming = await db.execAdvanced(
+      `SELECT data FROM games WHERE competition_id = $1 AND status_group = 2
+         AND start_time > NOW() - INTERVAL '3 hours'
+         ORDER BY start_time ASC LIMIT 1`,
       [cid]
     );
     if (upcoming.length) return res.json(enrichGame(upcoming[0].data));
 
-    const { rows: recent } = await pool.query(
+    const recent = await db.execAdvanced(
       'SELECT data FROM games WHERE competition_id = $1 AND status_group = 4 ORDER BY start_time DESC LIMIT 1',
       [cid]
     );
@@ -213,18 +230,17 @@ async function getMatchById(req, res, next) {
     const gid = Number(id);
 
     // Preferir game_overviews (tiene datos mas ricos: lineups, predictions, etc.).
-    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
-    if (rows.length) {
-      const game = rows[0].data?.game;
-      if (game) return res.json(enrichGame(game));
+    const overview = await getGameDetailBy('game_overviews', gid);
+    if (overview?.data?.game) {
+      return res.json(enrichGame(overview.data.game));
     }
 
     // Fallback a la tabla games: cubre los partidos que todavia no tienen
     // overview sincronizado (la mayoria). games.data ya esta en formato crudo
     // de 365scores (homeCompetitor/awayCompetitor), enrichGame lo normaliza.
-    const { rows: gameRows } = await pool.query('SELECT data FROM games WHERE id = $1', [gid]);
-    if (gameRows.length && gameRows[0].data) {
-      return res.json(enrichGame(gameRows[0].data));
+    const gameRow = await getGameDetailBy('games', gid);
+    if (gameRow?.data) {
+      return res.json(enrichGame(gameRow.data));
     }
 
     res.status(404).json({ error: 'Partido no encontrado' });
@@ -238,13 +254,13 @@ async function getMatchStats(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const { rows: gameRows } = await pool.query('SELECT data FROM games WHERE id = $1', [gid]);
-    const gameData = gameRows[0]?.data;
+    const gameRow = await getGameDetailBy('games', gid);
+    const gameData = gameRow?.data;
     const homeId = gameData?.homeCompetitor?.id ?? gameData?.homeCompetitorId;
     const awayId = gameData?.awayCompetitor?.id ?? gameData?.awayCompetitorId;
 
-    const { rows } = await pool.query('SELECT data FROM game_stats WHERE game_id = $1', [gid]);
-    const flat = rows[0]?.data?.statistics || rows[0]?.data?.stats || [];
+    const statsRow = await getGameDetailBy('game_stats', gid);
+    const flat = statsRow?.data?.statistics || statsRow?.data?.stats || [];
     if (flat.length) {
       const stats = pivotStats(flat, homeId, awayId);
       if (stats.length) return res.json(stats);
@@ -267,10 +283,10 @@ async function getMatchH2h(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const { rows } = await pool.query('SELECT data FROM game_h2h WHERE game_id = $1', [gid]);
-    if (!rows.length) return res.json({ recentGames: [], h2hGames: [] });
+    const row = await getGameDetailBy('game_h2h', gid);
+    if (!row?.data) return res.json({ recentGames: [], h2hGames: [] });
 
-    const doc = rows[0].data;
+    const doc = row.data;
     const result = { recentGames: [], h2hGames: [] };
     if (doc?.game?.homeCompetitor?.recentGames) {
       result.recentGames = doc.game.homeCompetitor.recentGames.map(enrichGame);
@@ -292,14 +308,14 @@ async function getMatchLineups(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const { rows: gameRows } = await pool.query('SELECT data FROM games WHERE id = $1', [gid]);
-    const gameData = gameRows[0]?.data;
+    const gameRow = await getGameDetailBy('games', gid);
+    const gameData = gameRow?.data;
     const homeId = gameData?.homeCompetitor?.id ?? gameData?.homeCompetitorId;
     const awayId = gameData?.awayCompetitor?.id ?? gameData?.awayCompetitorId;
 
-    const { rows } = await pool.query('SELECT data FROM game_lineups WHERE game_id = $1', [gid]);
-    if (rows.length) {
-      const built = buildLineups(rows[0].data, homeId, awayId);
+    const lineupsRow = await getGameDetailBy('game_lineups', gid);
+    if (lineupsRow?.data) {
+      const built = buildLineups(lineupsRow.data, homeId, awayId);
       if (built) return res.json(built);
     }
 
@@ -309,8 +325,8 @@ async function getMatchLineups(req, res, next) {
       if (built) return res.json(built);
     } catch (_) { /* fallthrough */ }
 
-    const { rows: ovRows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
-    const game = ovRows[0]?.data?.game;
+    const ovRow = await getGameDetailBy('game_overviews', gid);
+    const game = ovRow?.data?.game;
     if (game) {
       const home = extractLineup(game.homeCompetitor);
       const away = extractLineup(game.awayCompetitor);
@@ -329,10 +345,10 @@ async function getMatchPreStats(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const { rows } = await pool.query('SELECT data FROM game_pre_stats WHERE game_id = $1', [gid]);
-    if (!rows.length) return res.json([]);
+    const row = await getGameDetailBy('game_pre_stats', gid);
+    if (!row?.data) return res.json([]);
 
-    const apiData = rows[0].data;
+    const apiData = row.data;
     if (!apiData?.statistics?.length) return res.json([]);
 
     const byTeam = {};
@@ -365,7 +381,7 @@ async function getMatchTips(req, res, next) {
     // (vinculados a la comp, no al game), pero cada trend trae su `gameId`.
     // Leemos tanto los competition-level trends del partido como los game-level
     // (legacy) para cubrir todas las fuentes.
-    const { rows } = await pool.query(
+    const rows = await db.execAdvanced(
       `SELECT data FROM trends
         WHERE game_id = $1
           AND scope IN ('competition', 'game')
@@ -397,7 +413,7 @@ async function getMatchTrends(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const { rows } = await pool.query(
+    const rows = await db.execAdvanced(
       'SELECT data FROM trends WHERE scope = $1 AND game_id = $2',
       ['game', gid]
     );
@@ -445,8 +461,8 @@ async function getMatchPredictions(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
-    const pp = rows[0]?.data?.game?.promotedPredictions;
+    const row = await getGameDetailBy('game_overviews', gid);
+    const pp = row?.data?.game?.promotedPredictions;
     if (pp?.predictions?.length) {
       const mapped = mapPredictions(pp.predictions);
       if (mapped.length) return res.json(mapped);
@@ -479,8 +495,8 @@ async function getMatchTimeline(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const { rows: ovRows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
-    let rawEvents = ovRows[0]?.data?.game?.events || [];
+    const ovRow = await getGameDetailBy('game_overviews', gid);
+    let rawEvents = ovRow?.data?.game?.events || [];
 
     if (!rawEvents.length) {
       try {
@@ -494,7 +510,7 @@ async function getMatchTimeline(req, res, next) {
     const playerIds = [...new Set(rawEvents.flatMap(e => [e.playerId, ...(e.extraPlayers || [])]).filter(Boolean))];
     const playerNameMap = {};
     if (playerIds.length) {
-      const { rows: playerRows } = await pool.query(
+      const playerRows = await db.execAdvanced(
         `SELECT id, data->>'name' as name FROM athletes WHERE id = ANY($1::bigint[])`,
         [playerIds]
       );
@@ -536,10 +552,10 @@ async function getMatchSuggestions(req, res, next) {
     const { id } = req.params;
     const gid = Number(id);
 
-    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gid]);
-    if (!rows.length) return res.json([]);
+    const row = await getGameDetailBy('game_overviews', gid);
+    if (!row?.data) return res.json([]);
 
-    const game = rows[0].data?.game;
+    const game = row.data?.game;
     if (!game) return res.json([]);
 
     const predictions = game.promotedPredictions?.predictions || [];

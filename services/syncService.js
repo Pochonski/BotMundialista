@@ -1,6 +1,7 @@
 require('dotenv').config();
 const api = require('./scores365Service');
 const { pool, withTransaction } = require('../database/connection');
+const db = require('../database/db');
 const { getActiveCompetitions, forEachActive } = require('./syncCompetitions');
 const logger = require('../utils/logger');
 
@@ -656,8 +657,9 @@ async function syncOdds() {
   try {
     const comps = await getActiveCompetitions();
     const ids = comps.map(c => c.id);
-    const { rows } = await pool.query(
-      'SELECT id FROM games WHERE competition_id = ANY($1::int[]) AND status_group IN (1, 2) ORDER BY start_time DESC LIMIT 30',
+    const rows = await db.execAdvanced(
+      `SELECT id FROM games WHERE competition_id = ANY($1::int[]) AND status_group IN (1, 2)
+       ORDER BY start_time DESC LIMIT 30`,
       [ids]
     );
     let count = 0;
@@ -775,8 +777,9 @@ async function syncGameDetails() {
   try {
     const comps = await getActiveCompetitions();
     const ids = comps.map(c => c.id);
-    const { rows } = await pool.query(
-      'SELECT id FROM games WHERE competition_id = ANY($1::int[]) AND status_group IN (1, 2, 4) ORDER BY start_time DESC LIMIT 50',
+    const rows = await db.execAdvanced(
+      `SELECT id FROM games WHERE competition_id = ANY($1::int[]) AND status_group IN (1, 2, 4)
+       ORDER BY start_time DESC LIMIT 50`,
       [ids]
     );
     let count = 0;
@@ -796,7 +799,7 @@ async function syncLiveStats() {
   try {
     const comps = await getActiveCompetitions();
     const ids = comps.map(c => c.id);
-    const { rows } = await pool.query(
+    const rows = await db.execAdvanced(
       'SELECT id FROM games WHERE competition_id = ANY($1::int[]) AND status_group = 1',
       [ids]
     );
@@ -995,7 +998,7 @@ async function syncAthletes() {
     const comps = await getActiveCompetitions();
     const ids = comps.map(c => c.id);
 
-    const { rows } = await pool.query(
+    const rows = await db.execAdvanced(
       `SELECT gl.data AS lineups
          FROM game_lineups gl
          JOIN games g ON g.id = gl.game_id
@@ -1041,7 +1044,7 @@ async function syncAthletes() {
     log(`Synced ${athleteIds.length} athlete roster rows (atomic)`);
 
     const STALE_AFTER_MS = parseInt(process.env.ATHLETE_STALE_AFTER_MS || String(24 * 60 * 60 * 1000), 10);
-    const { rows: freshRows } = await pool.query(
+    const freshRows = await db.execAdvanced(
       `SELECT id, updated_at,
               (data ? 'trophies') AS has_trophies,
               (data ? 'transfers') AS has_transfers,
@@ -1096,8 +1099,9 @@ async function syncVenues() {
   try {
     const comps = await getActiveCompetitions();
     const ids = comps.map(c => c.id);
-    const { rows } = await pool.query(
-      'SELECT data FROM game_overviews WHERE game_id IN (SELECT id FROM games WHERE competition_id = ANY($1::int[]))',
+    const rows = await db.execAdvanced(
+      `SELECT data FROM game_overviews
+        WHERE game_id IN (SELECT id FROM games WHERE competition_id = ANY($1::int[]))`,
       [ids]
     );
     const seen = new Set();

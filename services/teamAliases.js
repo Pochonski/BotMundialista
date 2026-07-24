@@ -1,4 +1,5 @@
 const { pool } = require('../database/connection');
+const db = require('../database/db');
 const hardcoded = require('../utils/constants').EQUIPOS_MUNDIAL;
 
 const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
@@ -10,7 +11,7 @@ const CACHE_TTL = 24 * 60 * 60 * 1000;
 async function loadTeamsFromDB() {
   if (dbTeams && Date.now() - lastFetch < CACHE_TTL) return dbTeams;
   try {
-    const { rows } = await pool.query(
+    const { rows } = await db.execAdvanced(
       'SELECT id, name, data FROM competitors WHERE competition_id = $1',
       [COMPETITION_ID]
     );

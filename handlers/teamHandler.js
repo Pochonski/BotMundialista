@@ -3,6 +3,7 @@ const cache = require('../services/mundialCache');
 const { formatEquipoSeguido, formatMisEquipos, formatMatchLine } = require('../utils/formatters');
 const { getFlag, getConfederation, getRecentForm } = require('../utils/teamContext');
 const { pool, testConnection } = require('../database/connection');
+const db = require('../database/db');
 const { getCountryFlagUrl } = require('../services/images');
 
 let dbAvailable = false;
@@ -73,7 +74,7 @@ async function seguirEquipo(userId, equipo) {
       teamId = team.id;
       teamName = team.name;
     }
-    await pool.query(
+    await db.execAdvanced(
       `INSERT INTO equipos_seguidos (id_usuario, id_equipo, nombre_equipo)
        VALUES ($1, $2, $3)
        ON CONFLICT (id_usuario, id_equipo) DO NOTHING`,
@@ -98,7 +99,7 @@ async function dejarSeguirEquipo(userId, equipo) {
       teamId = team.id;
       teamName = team.name;
     }
-    await pool.query(
+    await db.execAdvanced(
       `DELETE FROM equipos_seguidos WHERE id_usuario = $1 AND (id_equipo = $2 OR nombre_equipo ILIKE $3)`,
       [userId, teamId, teamName]
     );
@@ -113,11 +114,11 @@ async function getEquiposSeguidos(userId) {
   await initDb();
   if (!dbAvailable) return formatMisEquipos([]);
   try {
-    const res = await pool.query(
+    const res = await db.execAdvanced(
       `SELECT id_equipo, nombre_equipo FROM equipos_seguidos WHERE id_usuario = $1 ORDER BY fecha_seguimiento DESC`,
       [userId]
     );
-    if (res.rows.length === 0) return formatMisEquipos([]);
+    if (res.length === 0) return formatMisEquipos([]);
     return formatMisEquipos(res.rows);
   } catch (error) {
     console.error('Error getEquiposSeguidos:', error);

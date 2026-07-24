@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { pool } = require('../database/connection');
+const db = require('../database/db');
 const matchSearch = require('../services/matchSearch');
 const { getCompetitionName, getSeasonLabel } = require('../services/competitionName');
 const { getAthletePhotoUrl } = require('../services/images');
@@ -34,7 +35,7 @@ async function getNoticias({ equipo = null, limit = 10 } = {}) {
       }
 
       try {
-        const { rows } = await pool.query(
+        const { rows } = await db.execAdvanced(
           'SELECT data FROM news WHERE scope = $1 AND entity_id = $2',
           ['competition', COMPETITION_ID]
         );
@@ -68,7 +69,7 @@ async function getNoticias({ equipo = null, limit = 10 } = {}) {
       }
     }
 
-    const { rows } = await pool.query(
+    const { rows } = await db.execAdvanced(
       'SELECT data FROM news WHERE scope = $1 AND entity_id = $2 ORDER BY publish_date DESC NULLS LAST LIMIT $3',
       ['competition', COMPETITION_ID, limit]
     );
@@ -94,7 +95,7 @@ async function getNoticias({ equipo = null, limit = 10 } = {}) {
 
 async function getEquipoIdeal() {
   try {
-    const { rows } = await pool.query('SELECT data FROM team_of_week WHERE competition_id = $1', [COMPETITION_ID]);
+    const { rows } = await db.execAdvanced('SELECT data FROM team_of_week WHERE competition_id = $1', [COMPETITION_ID]);
     if (!rows.length) return `🌟 No hay equipo de la semana disponible todavía.`;
 
     const data = rows[0].data;
@@ -141,7 +142,7 @@ async function getEquipoIdeal() {
 
 async function getBracket(scope = 'eliminatorias') {
   try {
-    const { rows } = await pool.query('SELECT data FROM brackets WHERE competition_id = $1', [COMPETITION_ID]);
+    const { rows } = await db.execAdvanced('SELECT data FROM brackets WHERE competition_id = $1', [COMPETITION_ID]);
     if (!rows.length || !rows[0].data?.stages) {
       return `🏆 *LLAVES*\n\n` +
         `La estructura de brackets no está disponible todavía.\n\n` +
@@ -231,7 +232,7 @@ async function getHistorial(arg = null) {
       return getHistorialByTeam(String(arg).trim());
     }
 
-    const { rows } = await pool.query(
+    const { rows } = await db.execAdvanced(
       'SELECT data FROM competition_history WHERE competition_id = $1 ORDER BY (data->>\'seasonNum\')::int DESC',
       [COMPETITION_ID]
     );
@@ -262,7 +263,7 @@ async function getHistorial(arg = null) {
 }
 
 async function getHistorialByYear(year) {
-  const { rows: allRows } = await pool.query(
+  const { rows: allRows } = await db.execAdvanced(
     'SELECT data FROM competition_history WHERE competition_id = $1 ORDER BY (data->>\'seasonNum\')::int ASC',
     [COMPETITION_ID]
   );
@@ -274,7 +275,7 @@ async function getHistorialByYear(year) {
     return `🏆 No hay datos para ${year}. Ediciones disponibles: ${available}.`;
   }
 
-  const { rows } = await pool.query(
+  const { rows } = await db.execAdvanced(
     'SELECT data FROM competition_history WHERE competition_id = $1 AND (data->>\'seasonNum\')::int = $2',
     [COMPETITION_ID, match.data?.seasonNum]
   );
@@ -298,7 +299,7 @@ async function getHistorialByYear(year) {
 }
 
 async function getHistorialByTeam(team) {
-  const { rows } = await pool.query(
+  const { rows } = await db.execAdvanced(
     'SELECT data FROM competition_history WHERE competition_id = $1',
     [COMPETITION_ID]
   );
@@ -338,7 +339,7 @@ async function getHistorialByTeam(team) {
 
 async function getGoleadores(limit = 10) {
   try {
-    const { rows } = await pool.query(
+    const { rows } = await db.execAdvanced(
       'SELECT data FROM tournament_stats WHERE competition_id = $1 ORDER BY updated_at DESC LIMIT 1',
       [COMPETITION_ID]
     );

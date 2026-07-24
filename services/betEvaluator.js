@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { pool } = require('../database/connection');
+const db = require('../database/db');
 const state = require('../database/bootstrapState');
 
 const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
@@ -184,11 +185,11 @@ function extractStatsFromSnapshot(snapshot) {
 
 async function getGameStateFromSupabase(gameId) {
   try {
-    const r = await pool.query(
+    const r = await db.execAdvanced(
       'SELECT last_snapshot, last_status_text FROM scores365_state WHERE game_id = $1',
       [Number(gameId)]
     );
-    const row = r.rows[0];
+    const row = r[0];
     if (!row || !row.last_snapshot) return null;
     const snap = row.last_snapshot;
     return {
@@ -208,7 +209,7 @@ async function getGameStateFromSupabase(gameId) {
 
 async function fetchTicketFromDb(ticketId) {
   try {
-    const result = await pool.query(`
+    const result = await db.execAdvanced(`
       SELECT a.id, a.id_usuario, a.id_partido_api, a.estado,
              json_agg(json_build_object('id', s.id, 'tipo', s.tipo_mercado, 'valor', s.valor_seleccion, 'linea', s.linea)) FILTER (WHERE s.id IS NOT NULL) as selecciones
       FROM apuestas a
@@ -216,8 +217,8 @@ async function fetchTicketFromDb(ticketId) {
       WHERE a.id = $1
       GROUP BY a.id
     `, [parseInt(ticketId, 10)]);
-    if (result.rows.length === 0) return null;
-    return result.rows[0];
+    if (result.length === 0) return null;
+    return result[0];
   } catch (e) {
     console.error('[betEvaluator] fetchTicket error:', e.message);
     return null;
@@ -268,13 +269,13 @@ async function findAffectedChats(event) {
   if (!event || !event.gameId) return [];
   const out = [];
   try {
-    const subs = await pool.query(
+    const subs = await db.execAdvanced(
       'SELECT ticket_id, chat_ids, mode, last_notified_status FROM bet_followers WHERE game_id = $1',
       [Number(event.gameId)]
     );
     const gameState = await getGameStateFromSupabase(event.gameId);
     if (!gameState) return [];
-    for (const sub of subs.rows) {
+    for (const sub of subs) {
       const ticket = await fetchTicketFromDb(sub.ticket_id);
       if (!ticket) continue;
       const evaluation = await evaluateTicket(ticket, gameState);
@@ -290,7 +291,7 @@ async function findAffectedChats(event) {
           for (const chatId of sub.chat_ids || []) {
             out.push({ chatId, ticketId: sub.ticket_id, ticket, evaluation, mode: 'outcome_only' });
           }
-          await pool.query(`
+          await db.execAdvanced(`
             INSERT INTO bet_followers (ticket_id, game_id, chat_ids, mode, last_notified_status, updated_at)
             VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
             ON CONFLICT (ticket_id, mode)

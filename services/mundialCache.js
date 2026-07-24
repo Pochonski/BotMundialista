@@ -1,4 +1,4 @@
-const { pool } = require('../database/connection');
+const db = require('../database/db');
 
 const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 const CACHE = new Map();
@@ -28,7 +28,7 @@ async function getWorldCupGames({ date, onlyMajorGames = true, range = 1 } = {})
   if (date) {
     const key = `games:${date}:${onlyMajorGames}`;
     return cached(key, ttl(15 * 60 * 1000), async () => {
-      const { rows } = await pool.query(
+      const rows = await db.execAdvanced(
         'SELECT data FROM games WHERE competition_id = $1 AND DATE(start_time) = $2',
         [COMPETITION_ID, date]
       );
@@ -37,7 +37,7 @@ async function getWorldCupGames({ date, onlyMajorGames = true, range = 1 } = {})
   }
   return cached('games:today', ttl(15 * 60 * 1000), async () => {
     const today = new Date().toISOString().slice(0, 10);
-    const { rows } = await pool.query(
+    const rows = await db.execAdvanced(
       'SELECT data FROM games WHERE competition_id = $1 AND DATE(start_time) = $2',
       [COMPETITION_ID, today]
     );
@@ -47,7 +47,7 @@ async function getWorldCupGames({ date, onlyMajorGames = true, range = 1 } = {})
 
 async function getRecentWorldCupGames({ limit = 88 } = {}) {
   return cached('games:all', ttl(15 * 60 * 1000), async () => {
-    const { rows } = await pool.query(
+    const rows = await db.execAdvanced(
       'SELECT data FROM games WHERE competition_id = $1 ORDER BY start_time DESC',
       [COMPETITION_ID]
     );
@@ -57,7 +57,7 @@ async function getRecentWorldCupGames({ limit = 88 } = {}) {
 
 async function getWorldCupStandings() {
   return cached('standings', ttl(60 * 60 * 1000), async () => {
-    const { rows } = await pool.query(
+    const rows = await db.execAdvanced(
       'SELECT data FROM standings WHERE competition_id = $1 ORDER BY updated_at DESC LIMIT 1',
       [COMPETITION_ID]
     );
@@ -67,35 +67,35 @@ async function getWorldCupStandings() {
 
 async function getMatchStats(gameId) {
   return cached(`stats:${gameId}`, ttl(15 * 1000), async () => {
-    const { rows } = await pool.query('SELECT data FROM game_stats WHERE game_id = $1', [gameId]);
+    const rows = await db.execAdvanced('SELECT data FROM game_stats WHERE game_id = $1', [gameId]);
     return rows.length ? (rows[0].data?.statistics || []) : [];
   });
 }
 
 async function getMatchOverview(gameId, matchupId) {
   return cached(`overview:${gameId}`, ttl(60 * 60 * 1000), async () => {
-    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gameId]);
+    const rows = await db.execAdvanced('SELECT data FROM game_overviews WHERE game_id = $1', [gameId]);
     return rows.length ? rows[0].data : null;
   });
 }
 
 async function getMatchH2H(gameId, matchupId) {
   return cached(`h2h:${gameId}`, ttl(5 * 60 * 1000), async () => {
-    const { rows } = await pool.query('SELECT data FROM game_h2h WHERE game_id = $1', [gameId]);
+    const rows = await db.execAdvanced('SELECT data FROM game_h2h WHERE game_id = $1', [gameId]);
     return rows.length ? rows[0].data : null;
   });
 }
 
 async function getMatchPreStats(gameId) {
   return cached(`prestats:${gameId}`, ttl(5 * 60 * 1000), async () => {
-    const { rows } = await pool.query('SELECT data FROM game_pre_stats WHERE game_id = $1', [gameId]);
+    const rows = await db.execAdvanced('SELECT data FROM game_pre_stats WHERE game_id = $1', [gameId]);
     return rows.length ? rows[0].data : null;
   });
 }
 
 async function getTournamentTop() {
   return cached('tournamentTop', ttl(60 * 60 * 1000), async () => {
-    const { rows } = await pool.query(
+    const rows = await db.execAdvanced(
       'SELECT data FROM tournament_stats WHERE competition_id = $1 ORDER BY updated_at DESC LIMIT 1',
       [COMPETITION_ID]
     );
@@ -110,7 +110,7 @@ async function getTeamByName(name) {
     // We also try `data->>'name'`, `data->>'symbolicName'` and
     // `data->>'shortName'` so teams whose canonical name differs slightly
     // from their display name still match.
-    const { rows } = await pool.query(
+    const rows = await db.execAdvanced(
       `SELECT id, name, data
          FROM competitors
         WHERE lower(name) LIKE '%' || lower($1) || '%'
@@ -134,7 +134,7 @@ async function getTeamByName(name) {
     }
     // Fallback: scan recent games of this competition. Bounded query so it
     // doesn't scan the whole games table on a cold cache.
-    const { rows: games } = await pool.query(
+    const games = await db.execAdvanced(
       `SELECT data FROM games
         WHERE competition_id = $1
           AND start_time >= now() - interval '120 days'
@@ -162,7 +162,7 @@ async function getTeamByName(name) {
 
 async function getGameById(gameId) {
   return cached(`gameById:${gameId}`, ttl(5 * 60 * 1000), async () => {
-    const { rows } = await pool.query('SELECT data FROM game_overviews WHERE game_id = $1', [gameId]);
+    const rows = await db.execAdvanced('SELECT data FROM game_overviews WHERE game_id = $1', [gameId]);
     return rows.length ? (rows[0].data?.game || null) : null;
   });
 }
@@ -170,8 +170,11 @@ async function getGameById(gameId) {
 async function findGameByCompetitors(compIdA, compIdB) {
   const [a, b] = [Number(compIdA), Number(compIdB)];
   return cached(`findGame:${a}:${b}`, ttl(60 * 60 * 1000), async () => {
-    const { rows } = await pool.query(
-      'SELECT data FROM games WHERE competition_id = $1 AND ((home_competitor_id = $2 AND away_competitor_id = $3) OR (home_competitor_id = $3 AND away_competitor_id = $2)) LIMIT 1',
+    const rows = await db.execAdvanced(
+      `SELECT data FROM games WHERE competition_id = $1
+        AND ((home_competitor_id = $2 AND away_competitor_id = $3)
+          OR (home_competitor_id = $3 AND away_competitor_id = $2))
+        LIMIT 1`,
       [COMPETITION_ID, a, b]
     );
     return rows.length ? rows[0].data : null;
@@ -181,8 +184,10 @@ async function findGameByCompetitors(compIdA, compIdB) {
 async function getRecentWorldCupMatchesByTeam(teamId) {
   return cached(`teamMatches:${teamId}`, ttl(60 * 60 * 1000), async () => {
     const tid = Number(teamId);
-    const { rows } = await pool.query(
-      'SELECT data FROM games WHERE competition_id = $1 AND (home_competitor_id = $2 OR away_competitor_id = $2) ORDER BY start_time DESC',
+    const rows = await db.execAdvanced(
+      `SELECT data FROM games WHERE competition_id = $1
+        AND (home_competitor_id = $2 OR away_competitor_id = $2)
+        ORDER BY start_time DESC`,
       [COMPETITION_ID, tid]
     );
     return rows.map(r => r.data);
@@ -193,8 +198,9 @@ async function searchAthletes(query) {
   const target = normalizeName(query);
   const parts = target.split(/\s+/);
   const athletes = await cached('athletes:all', ttl(24 * 60 * 60 * 1000), async () => {
-    const { rows: overviewRows } = await pool.query(
-      'SELECT data FROM game_overviews WHERE game_id IN (SELECT id FROM games WHERE competition_id = $1)',
+    const overviewRows = await db.execAdvanced(
+      `SELECT data FROM game_overviews
+        WHERE game_id IN (SELECT id FROM games WHERE competition_id = $1)`,
       [COMPETITION_ID]
     );
     const seen = new Set();
@@ -224,7 +230,7 @@ async function searchAthletes(query) {
 
 async function getAthleteById(id) {
   return cached(`athlete:${id}`, ttl(24 * 60 * 60 * 1000), async () => {
-    const { rows } = await pool.query('SELECT data FROM athletes WHERE id = $1', [id]);
+    const rows = await db.execAdvanced('SELECT data FROM athletes WHERE id = $1', [id]);
     return rows.length ? rows[0].data : null;
   });
 }

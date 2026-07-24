@@ -105,17 +105,54 @@ async function getTournamentTop() {
 
 async function getTeamByName(name) {
   return cached(`team:${name}`, ttl(24 * 60 * 60 * 1000), async () => {
-    const { rows } = await pool.query('SELECT data FROM competitors WHERE name ILIKE $1', [`%${name}%`]);
+    // Use a substring match on the canonical `name` column. The trigram
+    // index (migration 012) accelerates this even for short queries.
+    // We also try `data->>'name'`, `data->>'symbolicName'` and
+    // `data->>'shortName'` so teams whose canonical name differs slightly
+    // from their display name still match.
+    const { rows } = await pool.query(
+      `SELECT id, name, data
+         FROM competitors
+        WHERE lower(name) LIKE '%' || lower($1) || '%'
+           OR lower(COALESCE(data->>'name', '')) LIKE '%' || lower($1) || '%'
+           OR lower(COALESCE(data->>'symbolicName', '')) LIKE '%' || lower($1) || '%'
+           OR lower(COALESCE(data->>'shortName', '')) LIKE '%' || lower($1) || '%'
+        ORDER BY length(name) ASC
+        LIMIT 5`,
+      [name]
+    );
     if (rows.length) {
-      const t = rows[0].data;
-      return { id: t.id, name: t.name, symbolicName: t.symbolicName, countryId: t.countryId, imageVersion: t.imageVersion };
+      const r = rows[0];
+      const t = r.data || {};
+      return {
+        id: Number(r.id),
+        name: r.name || t.name || null,
+        symbolicName: t.symbolicName ?? null,
+        countryId: t.countryId ?? null,
+        imageVersion: t.imageVersion ?? 1,
+      };
     }
-    const { rows: games } = await pool.query('SELECT data FROM games WHERE competition_id = $1', [COMPETITION_ID]);
+    // Fallback: scan recent games of this competition. Bounded query so it
+    // doesn't scan the whole games table on a cold cache.
+    const { rows: games } = await pool.query(
+      `SELECT data FROM games
+        WHERE competition_id = $1
+          AND start_time >= now() - interval '120 days'
+        ORDER BY start_time DESC
+        LIMIT 100`,
+      [COMPETITION_ID]
+    );
     const target = normalizeName(name);
     for (const r of games) {
       for (const comp of [r.data.homeCompetitor, r.data.awayCompetitor]) {
         if (comp && normalizeName(comp.name) === target) {
-          return { id: comp.id, name: comp.name, symbolicName: comp.symbolicName, countryId: comp.countryId, imageVersion: comp.imageVersion };
+          return {
+            id: comp.id,
+            name: comp.name,
+            symbolicName: comp.symbolicName,
+            countryId: comp.countryId,
+            imageVersion: comp.imageVersion,
+          };
         }
       }
     }

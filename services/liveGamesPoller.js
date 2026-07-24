@@ -3,10 +3,10 @@ const cron = require('node-cron');
 
 const api = require('./scores365Service');
 const { pool } = require('../database/connection');
+const { forEachActive } = require('./syncCompetitions');
 const notifier = require('./notifier');
 const logger = require('../utils/logger');
 
-const COMPETITION_ID = parseInt(process.env.PRIMARY_COMPETITION_ID || '5930', 10);
 const POLL_MS = parseInt(process.env.SCORES365_POLL_MS || '25000', 10);
 const CRON_EXPR = `*/${Math.max(15, Math.floor(POLL_MS / 1000))} * * * * *`;
 
@@ -19,21 +19,34 @@ function log(msg, extra) {
 const previousStats = new Map();
 
 async function getLastUpdateId(gameId) {
+  const client = await pool.connect().catch(() => null);
+  if (!client) return 0;
   try {
-    const r = await pool.query('SELECT last_update_id FROM scores365_state WHERE game_id = $1', [Number(gameId)]);
+    const r = await client.query('SELECT last_update_id FROM scores365_state WHERE game_id = $1', [Number(gameId)]);
     return r.rows[0]?.last_update_id || 0;
-  } catch (_) { return 0; }
+  } catch (err) {
+    logger.warn({ err: err.message, poller: 'live', gameId }, 'getLastUpdateId failed');
+    return 0;
+  } finally {
+    client.release();
+  }
 }
 
-async function setLastUpdateId(gameId, lastUpdateId) {
+async function setLastUpdateId(gameId, competitionId, lastUpdateId) {
+  const client = await pool.connect().catch(() => null);
+  if (!client) return;
   try {
-    await pool.query(`
+    await client.query(`
       INSERT INTO scores365_state (game_id, competition_id, last_update_id, updated_at)
       VALUES ($1, $2, $3, NOW())
       ON CONFLICT (game_id)
       DO UPDATE SET last_update_id = EXCLUDED.last_update_id, updated_at = NOW()
-    `, [Number(gameId), COMPETITION_ID, lastUpdateId]);
-  } catch (_) {}
+    `, [Number(gameId), competitionId, lastUpdateId]);
+  } catch (err) {
+    logger.warn({ err: err.message, poller: 'live', gameId }, 'setLastUpdateId failed');
+  } finally {
+    client.release();
+  }
 }
 
 function getStatValue(stats, id) {
@@ -44,94 +57,214 @@ function getStatValue(stats, id) {
   return null;
 }
 
-function getCompetitorScore(stats, competitorId, statId) {
-  if (!stats) return null;
+function getStatValueForCompetitor(stats, id, competitorId) {
+  if (!stats || competitorId == null) return null;
   for (const s of stats) {
-    if (s.id === statId && s.competitorId === competitorId) return parseInt(s.value) || 0;
+    if (s.id === id && Number(s.competitorId) === Number(competitorId)) {
+      return parseInt(s.value) || 0;
+    }
   }
   return null;
 }
 
-function detectEvents(gameId, prevStats, newStats) {
-  if (!prevStats || !newStats) return [];
+/**
+ * Detecta cambios comparando snapshots previos y nuevos.
+ *
+ * 365scores separa stats por `competitorId` y usa IDs para el TIPO de stat.
+ * Para goles NO se usa un stat ID — el score viene como `score` en homeCompetitor/awayCompetitor.
+ * Para córners sí es stat ID 8.
+ *
+ * Esta función ya no infiere local/visitante por el ID del stat; usa el
+ * competitorId que viene explícito.
+ */
+function detectEvents(game, prevStats, newStats, prevScores, newScores) {
   const events = [];
+  const { id: gameId } = game;
+  const homeId = game.homeCompetitor?.id;
+  const awayId = game.awayCompetitor?.id;
 
-  const newHomeGoals = getStatValue(newStats, 1);
-  const prevHomeGoals = getStatValue(prevStats, 1);
-  if (newHomeGoals != null && prevHomeGoals != null && newHomeGoals > prevHomeGoals) {
-    const diff = newHomeGoals - prevHomeGoals;
+  if (!prevScores || !newScores) return events;
+
+  if (homeId != null && prevScores.home != null && newScores.home > prevScores.home) {
+    const diff = newScores.home - prevScores.home;
     for (let i = 0; i < diff; i++) {
-      events.push({ type: 'goal:scored', gameId, team: 'local', score: `${newHomeGoals}-${getStatValue(newStats, 1, 'away') ?? 0}`, minute: null });
+      events.push({
+        type: 'goal:scored',
+        gameId,
+        team: 'home',
+        competitorId: homeId,
+        competitionId: game.competitionId,
+        score: `${newScores.home}-${newScores.away}`,
+        minute: null,
+      });
     }
   }
 
-  const newAwayGoals = getStatValue(newStats, 1);
-  const prevAwayGoals = getStatValue(prevStats, 1);
+  if (awayId != null && prevScores.away != null && newScores.away > prevScores.away) {
+    const diff = newScores.away - prevScores.away;
+    for (let i = 0; i < diff; i++) {
+      events.push({
+        type: 'goal:scored',
+        gameId,
+        team: 'away',
+        competitorId: awayId,
+        competitionId: game.competitionId,
+        score: `${newScores.home}-${newScores.away}`,
+        minute: null,
+      });
+    }
+  }
 
-  const newCorners = getStatValue(newStats, 6);
-  const prevCorners = getStatValue(prevStats, 6);
-  if (newCorners != null && prevCorners != null && newCorners > prevCorners) {
-    events.push({ type: 'corner', gameId, title: 'Córner', minute: null });
+  if (homeId != null) {
+    const prevCorners = getStatValueForCompetitor(prevStats, 8, homeId);
+    const newCorners = getStatValueForCompetitor(newStats, 8, homeId);
+    if (prevCorners != null && newCorners != null && newCorners > prevCorners) {
+      events.push({
+        type: 'corner',
+        gameId,
+        team: 'home',
+        competitorId: homeId,
+        competitionId: game.competitionId,
+        minute: null,
+      });
+    }
+  }
+  if (awayId != null) {
+    const prevCorners = getStatValueForCompetitor(prevStats, 8, awayId);
+    const newCorners = getStatValueForCompetitor(newStats, 8, awayId);
+    if (prevCorners != null && newCorners != null && newCorners > prevCorners) {
+      events.push({
+        type: 'corner',
+        gameId,
+        team: 'away',
+        competitorId: awayId,
+        competitionId: game.competitionId,
+        minute: null,
+      });
+    }
   }
 
   return events;
 }
 
+function snapshotForGame(game) {
+  return {
+    stats: game._lastStatistics || [],
+    homeScore: typeof game.homeCompetitor?.score === 'number' ? game.homeCompetitor.score : null,
+    awayScore: typeof game.awayCompetitor?.score === 'number' ? game.awayCompetitor.score : null,
+  };
+}
+
 async function pollGame(gameId) {
-  const prevId = await getLastUpdateId(gameId);
-  const data = await api.getGameStats(gameId, prevId || undefined);
+  const gameNumericId = Number(gameId);
+  const prevEntry = previousStats.get(gameNumericId) || {};
+  const prevStats = prevEntry.stats;
+  const prevScores = { home: prevEntry.homeScore ?? null, away: prevEntry.awayScore ?? null };
+  const prevId = await getLastUpdateId(gameNumericId);
+
+  const data = await api.getGameStats(gameNumericId, prevId || undefined);
   const newId = data.lastUpdateId || prevId;
-  const prevStats = previousStats.get(Number(gameId));
   const newStats = data.statistics || [];
+  const homeScore = typeof data.homeCompetitor?.score === 'number' ? data.homeCompetitor.score
+    : typeof data.game?.homeCompetitor?.score === 'number' ? data.game.homeCompetitor.score
+    : null;
+  const awayScore = typeof data.awayCompetitor?.score === 'number' ? data.awayCompetitor.score
+    : typeof data.game?.awayCompetitor?.score === 'number' ? data.game.awayCompetitor.score
+    : null;
+  const newScores = { home: homeScore, away: awayScore };
+  const competitionId = data.competitionId ?? prevEntry.competitionId ?? null;
 
   if (newId === prevId && prevId > 0) {
-    previousStats.set(Number(gameId), newStats);
-    return { gameId, status: 'no-change', lastUpdateId: prevId };
+    previousStats.set(gameNumericId, { ...prevEntry, stats: newStats, homeScore, awayScore });
+    return { gameId: gameNumericId, status: 'no-change', lastUpdateId: prevId };
   }
 
-  const detectedEvents = detectEvents(Number(gameId), prevStats, newStats);
-  previousStats.set(Number(gameId), newStats);
+  const gameStub = {
+    id: gameNumericId,
+    competitionId,
+    homeCompetitor: { id: data.homeCompetitor?.id ?? prevEntry.homeId },
+    awayCompetitor: { id: data.awayCompetitor?.id ?? prevEntry.awayId },
+  };
+
+  const detected = detectEvents(gameStub, prevStats, newStats, prevScores, newScores);
+  previousStats.set(gameNumericId, {
+    stats: newStats,
+    homeScore,
+    awayScore,
+    homeId: gameStub.homeCompetitor.id,
+    awayId: gameStub.awayCompetitor.id,
+    competitionId,
+  });
 
   const statsCount = newStats.length;
   const filtersCount = (data.statisticsFilters || []).length;
-  await setLastUpdateId(gameId, newId);
+  await setLastUpdateId(gameNumericId, competitionId, newId);
 
-  for (const event of detectedEvents) {
+  for (const event of detected) {
     log(`  event detected: ${event.type} gameId=${gameId}`);
-    notifier.emitMatchEvent(event.type, event);
+    try {
+      notifier.emitMatchEvent(event.type, event);
+    } catch (err) {
+      logger.warn({ err: err.message, poller: 'live', gameId }, 'notifier.emitMatchEvent threw');
+    }
   }
 
-  return { gameId, status: 'updated', lastUpdateId: newId, stats: statsCount, filters: filtersCount, events: detectedEvents.length };
+  return { gameId: gameNumericId, status: 'updated', lastUpdateId: newId, stats: statsCount, filters: filtersCount, events: detected.length };
 }
 
+/**
+ * Devuelve la lista de partidos en vivo de TODAS las competiciones activas.
+ * Antes solo consultaba el Mundial.
+ */
 async function listLiveGames() {
-  try {
-    const current = await api.getGamesCurrent(COMPETITION_ID);
-    return (current.games || []).filter((g) => g.statusGroup === 1 || g.statusText === 'En vivo').map((g) => g.id);
-  } catch (e) {
-    logger.error({ err: e, poller: 'live' }, 'getGamesCurrent falló');
-    return [];
+  const seen = new Set();
+  const games = [];
+  let lastError = null;
+
+  await forEachActive(async (comp) => {
+    try {
+      const current = await api.getGamesCurrent(comp.id);
+      const live = (current.games || []).filter(
+        (g) => g.statusGroup === 1 || g.statusText === 'En vivo'
+      );
+      for (const g of live) {
+        if (!seen.has(Number(g.id))) {
+          seen.add(Number(g.id));
+          games.push({
+            ...g,
+            competitionId: Number(g.competitionId || comp.id),
+          });
+        }
+      }
+    } catch (err) {
+      lastError = err;
+      logger.warn({ err: err.message, poller: 'live', competitionId: comp.id }, 'getGamesCurrent failed for comp');
+    }
+  });
+
+  if (!games.length && lastError) {
+    logger.error({ err: lastError.message, poller: 'live' }, 'all getGamesCurrent failed');
   }
+
+  return games;
 }
 
 async function tick() {
-  const ids = await listLiveGames();
-  if (!ids.length) {
+  const liveGames = await listLiveGames();
+  if (!liveGames.length) {
     log('sin juegos en vivo');
     return;
   }
-  log(`polling ${ids.length} juegos en vivo...`);
-  for (const id of ids) {
+  log(`polling ${liveGames.length} juegos en vivo (multi-comp)`);
+  for (const g of liveGames) {
     try {
-      const r = await pollGame(id);
-      log(`  ${id}: ${r.status} (${r.stats ?? 0} stats, ${r.events ?? 0} events)`);
+      const r = await pollGame(g.id);
+      log(`  ${g.id} [comp=${g.competitionId}]: ${r.status} (${r.stats ?? 0} stats, ${r.events ?? 0} events)`);
     } catch (e) {
-      logger.error({ err: e, poller: 'live', gameId: id }, 'pollGame ERROR');
+      logger.error({ err: e.message, poller: 'live', gameId: g.id, competitionId: g.competitionId }, 'pollGame ERROR');
     }
   }
-  // Evacuar entries de juegos que ya no están en vivo (libera memoria y
-  // previene usar snapshots viejos si se reutiliza un gameId).
-  const liveSet = new Set(ids.map(Number));
+  const liveSet = new Set(liveGames.map((g) => Number(g.id)));
   for (const key of previousStats.keys()) {
     if (!liveSet.has(key)) previousStats.delete(key);
   }
@@ -149,7 +282,7 @@ async function tickGuarded() {
   try {
     await tick();
   } catch (e) {
-    logger.error({ err: e, poller: 'live' }, 'tick falló');
+    logger.error({ err: e.message, poller: 'live' }, 'tick falló');
   } finally {
     isRunning = false;
   }
@@ -176,4 +309,9 @@ if (require.main === module) {
   process.on('SIGTERM', () => { stop(); process.exit(0); });
 }
 
-module.exports = { start, stop, tick, pollGame, listLiveGames, previousStats };
+// Deprecated helper: kept for backwards compat; no longer used internally.
+function getCompetitorScore(stats, competitorId, statId) {
+  return getStatValueForCompetitor(stats, statId, competitorId);
+}
+
+module.exports = { start, stop, tick, pollGame, listLiveGames, previousStats, getCompetitorScore };

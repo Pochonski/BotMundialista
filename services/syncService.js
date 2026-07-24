@@ -1,12 +1,28 @@
 require('dotenv').config();
 const api = require('./scores365Service');
-const { pool } = require('../database/connection');
+const { pool, withTransaction } = require('../database/connection');
 const { getActiveCompetitions, forEachActive } = require('./syncCompetitions');
+const { logger } = require('../utils/logger');
 
-const LOG_PREFIX = '[Sync]';
+// Logger por defecto para este módulo. Cada vez que se ejecuta un sync
+// completo se crea un child con su propio `syncRunId` para correlacionar
+// los logs.
+let currentSyncRunId = null;
+
+function newSyncRunId() {
+  // Pequeño identificador (timestamp + random) suficiente para correlación
+  // manual en Vercel logs. NO es un correlador único criptográfico.
+  const t = Date.now().toString(36);
+  const r = Math.random().toString(36).slice(2, 6);
+  return `${t}-${r}`;
+}
 
 function log(...args) {
-  console.log(LOG_PREFIX, ...args);
+  logger.info({ syncRunId: currentSyncRunId, mod: 'sync' }, '[Sync]', ...args);
+}
+
+function logErr(...args) {
+  logger.error({ syncRunId: currentSyncRunId, mod: 'sync' }, '[Sync]', ...args);
 }
 
 async function upsertMany(table, conflictCols, rows) {
@@ -27,6 +43,104 @@ async function upsertMany(table, conflictCols, rows) {
 
   const query = `INSERT INTO ${table} (${keys.join(', ')}) VALUES ${placeholders} ON CONFLICT (${conflictClause}) DO UPDATE SET ${updates}`;
   await pool.query(query, values);
+}
+
+// ============================================================================
+// Specialized upsert helpers — prevent partial JSONB from overwriting
+// the canonical, complete document stored in `competitors.data` or
+// `athletes.data`.
+// ============================================================================
+
+/**
+ * Upsert a canonical competitor document (full name, imageVersion,
+ * countryId, etc). Only used by `syncCatalog` so catalog writes
+ * fully replace what the previous sync wrote.
+ */
+async function upsertCompetitorCanonical(client, row) {
+  await client.query(
+    `INSERT INTO competitors (id, competition_id, name, data, updated_at)
+     VALUES ($1, $2, $3, $4::jsonb, $5)
+     ON CONFLICT (id) DO UPDATE
+       SET competition_id = COALESCE(EXCLUDED.competition_id, competitors.competition_id),
+           name = EXCLUDED.name,
+           data = EXCLUDED.data,
+           updated_at = EXCLUDED.updated_at`,
+    [
+      row.id,
+      row.competition_id ?? null,
+      row.name ?? null,
+      row.data,
+      row.updated_at || new Date().toISOString(),
+    ]
+  );
+}
+
+/**
+ * Upsert a `reference` to a competitor (e.g. from transfers or lineups).
+ * Touches only `name`/`updated_at` — does NOT overwrite `data` or
+ * `competition_id`, so the canonical row from `syncCatalog` is preserved.
+ *
+ * If the competitor does not yet exist, creates a minimal row with just
+ * the id and a `{id}` placeholder in `data`. Subsequent canonical sync
+ * will fill in the rest.
+ */
+async function upsertCompetitorReference(client, id, name = null) {
+  await client.query(
+    `INSERT INTO competitors (id, name, data, updated_at)
+     VALUES ($1, $2, jsonb_build_object('id', $1::int), $3)
+     ON CONFLICT (id) DO UPDATE
+       SET name = COALESCE(NULLIF(EXCLUDED.name, ''), competitors.name),
+           updated_at = EXCLUDED.updated_at`,
+    [Number(id), name || null, new Date().toISOString()]
+  );
+}
+
+/**
+ * Upsert a canonical athlete profile (full careerStats, trophies,
+ * transfers, etc). Marks source='profile' so future roster/transfer
+ * syncs cannot override it.
+ */
+async function upsertAthleteCanonical(client, row) {
+  await client.query(
+    `INSERT INTO athletes (id, name, data, source, updated_at)
+     VALUES ($1, $2, $3::jsonb, 'profile', $4)
+     ON CONFLICT (id) DO UPDATE
+       SET name = COALESCE(EXCLUDED.name, athletes.name),
+           data = EXCLUDED.data,
+           source = 'profile',
+           updated_at = EXCLUDED.updated_at`,
+    [
+      row.id,
+      row.name ?? null,
+      row.data,
+      row.updated_at || new Date().toISOString(),
+    ]
+  );
+}
+
+/**
+ * Roster-membership upsert for athletes: touches only minimal columns and
+ * DOES NOT overwrite `data` if a canonical profile already exists. Marks
+ * source='roster' for traceability.
+ */
+async function upsertRosterMembership(client, id, name) {
+  await client.query(
+    `INSERT INTO athletes (id, name, data, source, updated_at)
+     VALUES ($1, $2, jsonb_build_object('id', $1::bigint, 'rosterInserted', true), 'roster', $3)
+     ON CONFLICT (id) DO UPDATE
+       SET name = COALESCE(NULLIF(EXCLUDED.name, ''), athletes.name),
+           -- Only update data when the existing row is NOT a full profile
+           data = CASE WHEN athletes.source = 'profile'
+                       THEN athletes.data
+                       ELSE EXCLUDED.data
+                  END,
+           source = CASE WHEN athletes.source = 'profile'
+                         THEN 'profile'
+                         ELSE 'roster'
+                    END,
+           updated_at = EXCLUDED.updated_at`,
+    [Number(id), name || null, new Date().toISOString()]
+  );
 }
 
 async function upsertGames(games) {
@@ -70,7 +184,7 @@ async function syncGamesForComp(comp) {
     await upsertGames(games);
     log(`[comp=${comp.id}] Synced ${games.length} games`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing games:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing games: ${e.message}`);
   }
 }
 
@@ -87,7 +201,7 @@ async function syncLiveGamesForComp(comp) {
     await upsertGames(games);
     log(`[comp=${comp.id}] Synced ${games.length} live games`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing live games:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing live games: ${e.message}`);
   }
 }
 
@@ -103,7 +217,7 @@ async function syncGamesResultsForComp(comp) {
     await upsertGames(games);
     log(`[comp=${comp.id}] Synced ${games.length} results`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing results:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing results: ${e.message}`);
   }
 }
 
@@ -119,7 +233,7 @@ async function syncFixturesForComp(comp) {
     await upsertGames(games);
     log(`[comp=${comp.id}] Synced ${games.length} fixtures`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing fixtures:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing fixtures: ${e.message}`);
   }
 }
 
@@ -176,7 +290,7 @@ async function syncStandingsForComp(comp) {
 
     log(`[comp=${comp.id}] Synced standings (${stagesByType.size} stages)`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing standings:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing standings: ${e.message}`);
   }
 }
 
@@ -200,7 +314,7 @@ async function syncBracketsForComp(comp) {
     await upsertMany('brackets', 'competition_id', rows);
     log(`[comp=${comp.id}] Synced brackets`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing brackets:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing brackets: ${e.message}`);
   }
 }
 
@@ -221,7 +335,7 @@ async function syncTournamentStatsForComp(comp) {
     await upsertMany('tournament_stats', ['competition_id', 'season_num'], rows);
     log(`[comp=${comp.id}] Synced tournament stats`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing tournament stats:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing tournament stats: ${e.message}`);
   }
 }
 
@@ -241,7 +355,7 @@ async function syncTeamOfWeekForComp(comp) {
     await upsertMany('team_of_week', 'competition_id', rows);
     log(`[comp=${comp.id}] Synced team of week`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing team of week:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing team of week: ${e.message}`);
   }
 }
 
@@ -299,7 +413,7 @@ async function syncCompetitionHistoryForComp(comp) {
     }
     log(`[comp=${comp.id}] Synced ${historyRows.length} history docs (${docs.length} docs + ${tableRows.length} table rows)`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing competition history:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing competition history: ${e.message}`);
   }
 }
 
@@ -324,7 +438,7 @@ async function syncNewsForComp(comp) {
     if (rows.length) await upsertMany('news', 'id', rows);
     log(`[comp=${comp.id}] Synced ${rows.length} news items`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing news:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing news: ${e.message}`);
   }
 }
 
@@ -345,21 +459,27 @@ async function syncTrendsForComp(comp) {
       data: JSON.stringify(t),
       updated_at: new Date().toISOString(),
     }));
-    await pool.query('DELETE FROM trends WHERE scope = $1 AND entity_id = $2', ['competition', comp.id]);
-    if (rows.length) {
-      const placeholders = rows.map((_, i) =>
-        `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
-      ).join(', ');
-      const values = rows.flatMap(r => [r.scope, r.entity_id, r.game_id, r.line_type_id, r.data]);
-      // updated_at usa DEFAULT now() — no lo pasamos.
-      await pool.query(
-        `INSERT INTO trends (scope, entity_id, game_id, line_type_id, data) VALUES ${placeholders}`,
-        values
+
+    await withTransaction(async (client) => {
+      await client.query(
+        'DELETE FROM trends WHERE scope = $1 AND entity_id = $2',
+        ['competition', comp.id]
       );
-    }
-    log(`[comp=${comp.id}] Synced ${rows.length} trends`);
+      if (rows.length) {
+        const placeholders = rows.map((_, i) =>
+          `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
+        ).join(', ');
+        const values = rows.flatMap(r => [r.scope, r.entity_id, r.game_id, r.line_type_id, r.data]);
+        await client.query(
+          `INSERT INTO trends (scope, entity_id, game_id, line_type_id, data) VALUES ${placeholders}`,
+          values
+        );
+      }
+    });
+
+    log(`[comp=${comp.id}] Synced ${rows.length} trends (atomic)`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing trends:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing trends: ${e.message}`);
   }
 }
 
@@ -382,7 +502,7 @@ async function syncPredictions() {
     await upsertMany('predictions', 'game_id', rows);
     log(`Synced ${rows.length} predictions`);
   } catch (e) {
-    log('Error syncing predictions:', e.message);
+    logErr(`Error syncing predictions: ${e.message}`);
   }
 }
 
@@ -418,7 +538,7 @@ async function syncOdds() {
     }
     log(`Synced odds for ${count} games`);
   } catch (e) {
-    log('Error syncing odds:', e.message);
+    logErr(`Error syncing odds: ${e.message}`);
   }
 }
 
@@ -434,7 +554,7 @@ async function syncOutrightsForComp(comp) {
     await upsertMany('odds_outrights', 'competition_id', rows);
     log(`[comp=${comp.id}] Synced outrights`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing outrights:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing outrights: ${e.message}`);
   }
 }
 
@@ -538,7 +658,7 @@ async function syncGameDetails() {
     }
     log(`Synced details for ${count} games`);
   } catch (e) {
-    log('Error syncing game details:', e.message);
+    logErr(`Error syncing game details: ${e.message}`);
   }
 }
 
@@ -568,7 +688,7 @@ async function syncLiveStats() {
     }
     log(`Synced live stats for ${count} games`);
   } catch (e) {
-    log('Error syncing live stats:', e.message);
+    logErr(`Error syncing live stats: ${e.message}`);
   }
 }
 
@@ -646,7 +766,7 @@ async function syncCatalog() {
       }
     } catch (_) { /* skip */ }
 
-    // 4. Persistir competidores (replace por active comp ids).
+    // 4. Persistir competidores (replace por active comp ids) — atomic.
     if (competitorsByComp.size) {
       const rows = [];
       for (const { competitor, competitionId } of competitorsByComp.values()) {
@@ -660,13 +780,26 @@ async function syncCatalog() {
       }
       // Solo borramos competidores de competiciones activas; respetamos los
       // de competiciones históricas que el historial pueda necesitar.
-      await pool.query('DELETE FROM competitors WHERE competition_id = ANY($1::int[])', [ids]);
-      await upsertMany('competitors', 'id', rows);
+      // Todo el replace (DELETE + INSERT) ocurre dentro de una transacción
+      // para que un crash a mitad no deje la tabla inconsistente.
+      try {
+        await withTransaction(async (client) => {
+          await client.query(
+            'DELETE FROM competitors WHERE competition_id = ANY($1::int[])',
+            [ids]
+          );
+          for (const row of rows) {
+            await upsertCompetitorCanonical(client, row);
+          }
+        });
+      } catch (err) {
+        logErr(`catalog competitors txn failed: ${err.message}`);
+      }
     }
 
-    log(`Synced catalog (${compRows.length} competitions, ${competitorsByComp.size} competitors)`);
+    log(`Synced catalog (${compRows.length} competitions, ${competitorsByComp.size} competitors, atomic)`);
   } catch (e) {
-    log('Error syncing catalog:', e.message);
+    logErr(`Error syncing catalog: ${e.message}`);
   }
 }
 
@@ -702,7 +835,7 @@ async function syncCountries() {
     }
     log(`Synced ${rows.length} countries`);
   } catch (e) {
-    log('Error syncing countries:', e.message);
+    logErr(`Error syncing countries: ${e.message}`);
   }
 }
 
@@ -738,24 +871,24 @@ async function syncAthletes() {
     }
 
     const canonicalIds = athleteIds.map((a) => a.id);
-    const { rowCount: staleDeleted } = await pool.query(
-      `DELETE FROM athletes
-        WHERE id <> canonical_id
-          AND canonical_id = ANY($1::bigint[])`,
-      [canonicalIds]
-    );
-    if (staleDeleted > 0) {
-      log(`Removed ${staleDeleted} stale roster-id rows before upsert`);
-    }
 
-    const rosterRows = athleteIds.map((a) => ({
-      id: a.id,
-      name: a.name,
-      data: JSON.stringify({ ...a.rosterMember, id: a.id }),
-      updated_at: new Date().toISOString(),
-    }));
-    await upsertMany('athletes', 'id', rosterRows);
-    log(`Synced ${rosterRows.length} athlete roster rows`);
+    // Limpieza de filas roster-id stale + roster upsert atómico.
+    // upsertRosterMembership NO sobreescribe filas con source='profile'.
+    await withTransaction(async (client) => {
+      const { rowCount: staleDeleted } = await client.query(
+        `DELETE FROM athletes
+          WHERE id <> canonical_id
+            AND canonical_id = ANY($1::bigint[])`,
+        [canonicalIds]
+      );
+      if (staleDeleted > 0) {
+        log(`Removed ${staleDeleted} stale roster-id rows before upsert`);
+      }
+      for (const a of athleteIds) {
+        await upsertRosterMembership(client, a.id, a.name);
+      }
+    });
+    log(`Synced ${athleteIds.length} athlete roster rows (atomic)`);
 
     const STALE_AFTER_MS = parseInt(process.env.ATHLETE_STALE_AFTER_MS || String(24 * 60 * 60 * 1000), 10);
     const { rows: freshRows } = await pool.query(
@@ -788,24 +921,23 @@ async function syncAthletes() {
         const a = res?.athletes?.[0];
         if (!a || !a.id) { skipped++; continue; }
         const normalized = { ...a, id: Number(a.id) };
-        await pool.query(
-          `INSERT INTO athletes (id, name, data, updated_at)
-           VALUES ($1, $2, $3::jsonb, now())
-           ON CONFLICT (id) DO UPDATE
-             SET name = COALESCE(EXCLUDED.name, athletes.name),
-                 data = EXCLUDED.data,
-                 updated_at = now()`,
-          [normalized.id, normalized.name ?? null, JSON.stringify(normalized)]
-        );
+        // Cada hidratación individual es atómica (un solo upsert).
+        await withTransaction(async (client) => {
+          await upsertAthleteCanonical(client, {
+            id: normalized.id,
+            name: normalized.name ?? null,
+            data: JSON.stringify(normalized),
+          });
+        });
         hydrated++;
       } catch (e) {
-        log(`  hydrate ${id} failed: ${e.message}`);
+        logErr(`  hydrate ${id} failed: ${e.message}`);
       }
     }
 
     log(`Hydrated ${hydrated} profiles, skipped ${skipped} (fresh or upstream-error)`);
   } catch (e) {
-    log('Error syncing athletes:', e.message);
+    logErr(`Error syncing athletes: ${e.message}`);
   }
 }
 
@@ -839,7 +971,7 @@ async function syncVenues() {
     }
     log(`Synced ${venues.length} venues`);
   } catch (e) {
-    log('Error syncing venues:', e.message);
+    logErr(`Error syncing venues: ${e.message}`);
   }
 }
 
@@ -856,107 +988,86 @@ async function syncTransfersForComp(comp) {
     const athletes = data?.athletes ?? [];
     const competitors = data?.competitors ?? [];
 
-    // Upsert athletes que aparezcan en transfers (no sean ya conocidos).
-    // Dedupe por id antes del bulk INSERT — `upsertMany` con ON CONFLICT
-    // falla si la misma fila aparece dos veces en el mismo VALUES.
-    if (athletes.length) {
-      const seen = new Set();
-      const athleteRows = [];
-      for (const a of athletes) {
-        const id = Number(a.id);
-        if (!Number.isFinite(id) || seen.has(id)) continue;
-        seen.add(id);
-        athleteRows.push({
-          id,
-          name: a.name ?? null,
-          data: JSON.stringify(a),
-          updated_at: new Date().toISOString(),
-        });
+    // All of this is now atomic: if anything fails mid-way the DELETE+INSERT
+    // doesn't leave the cache half-populated.
+    await withTransaction(async (client) => {
+      // Upsert athletes que aparezcan en transfers como REFERENCIA — no
+      // destruye perfiles canónicos ya almacenados (source='profile').
+      if (athletes.length) {
+        const seen = new Set();
+        for (const a of athletes) {
+          const id = Number(a.id);
+          if (!Number.isFinite(id) || seen.has(id)) continue;
+          seen.add(id);
+          await upsertRosterMembership(client, id, a.name ?? null);
+        }
       }
-      if (athleteRows.length) {
-        await pool.query(
-          `INSERT INTO athletes (id, name, data, updated_at)
-           VALUES ${athleteRows.map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}::jsonb, $${i * 4 + 4})`).join(', ')}
-           ON CONFLICT (id) DO UPDATE
-             SET name = COALESCE(EXCLUDED.name, athletes.name),
-                 data = EXCLUDED.data,
-                 updated_at = EXCLUDED.updated_at`,
-          athleteRows.flatMap(r => [r.id, r.name, r.data, r.updated_at])
-        );
-      }
-    }
 
-    // Upsert competitors externos que aparezcan en transfers (no en active comp).
-    // NO actualizamos competition_id para no pisar la competición real del equipo
-    // (por ej. Barcelona aparece en transfers de Premier League pero es de LaLiga).
-    if (competitors.length) {
-      for (const c of competitors) {
-        await pool.query(
-          `INSERT INTO competitors (id, competition_id, name, data, updated_at)
-           VALUES ($1, $2, $3, $4::jsonb, $5)
-           ON CONFLICT (id) DO UPDATE SET
-             name = EXCLUDED.name,
-             data = EXCLUDED.data,
-             updated_at = EXCLUDED.updated_at`,
-          [c.id, null, c.name ?? null, JSON.stringify(c), new Date().toISOString()]
-        );
+      // Upsert competitors externos que aparezcan en transfers como
+      // REFERENCIA — preserva el `data` canónico del equipo. No toca
+      // competition_id.
+      if (competitors.length) {
+        const seenIds = new Set();
+        for (const c of competitors) {
+          const id = Number(c.id);
+          if (!Number.isFinite(id) || seenIds.has(id)) continue;
+          seenIds.add(id);
+          await upsertCompetitorReference(client, id, c.name ?? null);
+        }
       }
-    }
 
-    // Asegurar que todo equipo referenciado en transfers tenga un registro
-    // en `competitors` (aunque sea mínimo), así nunca mostramos "Team X".
-    const allTeamIds = new Set();
-    for (const t of transfers) {
-      if (t.origin != null) allTeamIds.add(Number(t.origin));
-      if (t.target != null) allTeamIds.add(Number(t.target));
-    }
-    const knownIds = new Set(competitors.map(c => Number(c.id)));
-    for (const id of allTeamIds) {
-      if (!knownIds.has(id)) {
-        await pool.query(
-          `INSERT INTO competitors (id, competition_id, name, data, updated_at)
-           VALUES ($1, NULL, NULL, $2::jsonb, $3)
-           ON CONFLICT (id) DO NOTHING`,
-          [id, JSON.stringify({ id }), new Date().toISOString()]
-        );
+      // Asegurar que todo equipo referenciado en transfers tenga un registro
+      // en `competitors` (aunque sea mínimo) — usando la versión reference
+      // para no destruir datos canónicos.
+      const allTeamIds = new Set();
+      for (const t of transfers) {
+        if (t.origin != null) allTeamIds.add(Number(t.origin));
+        if (t.target != null) allTeamIds.add(Number(t.target));
       }
-    }
+      const knownIds = new Set(competitors.map((c) => Number(c.id)));
+      for (const id of allTeamIds) {
+        if (!knownIds.has(id)) {
+          await upsertCompetitorReference(client, id);
+        }
+      }
 
-    // Replace transfers de esta comp (estrategia: DELETE + INSERT, simple).
-    await pool.query(
-      `DELETE FROM competition_transfers WHERE competition_id = $1`,
-      [comp.id]
-    );
-    if (transfers.length) {
-      const rows = transfers.map(t => ({
-        competition_id: comp.id,
-        transfer_id: Number(t.id),
-        athlete_id: t.athleteId != null ? Number(t.athleteId) : null,
-        origin_id: t.origin != null ? Number(t.origin) : null,
-        target_id: t.target != null ? Number(t.target) : null,
-        time: t.time ?? null,
-        price: t.price ?? null,
-        position_id: t.positionId != null ? Number(t.positionId) : null,
-        is_arrival: !!t.isArrival,
-        is_departure: !!t.isDeparture,
-        status_id: t.statusId != null ? Number(t.statusId) : null,
-        status_name: t.statusName ?? null,
-        data: JSON.stringify(t),
-        updated_at: new Date().toISOString(),
-      }));
-      const keys = Object.keys(rows[0]);
-      const placeholders = rows.map((_, ri) =>
-        '(' + keys.map((_, ci) => `$${ri * keys.length + ci + 1}`).join(', ') + ')'
-      ).join(', ');
-      const values = rows.flatMap(r => keys.map(k => r[k]));
-      await pool.query(
-        `INSERT INTO competition_transfers (${keys.join(', ')}) VALUES ${placeholders}`,
-        values
+      // Replace transfers de esta comp (DELETE + INSERT atómico).
+      await client.query(
+        `DELETE FROM competition_transfers WHERE competition_id = $1`,
+        [comp.id]
       );
-    }
-    log(`[comp=${comp.id}] Synced ${transfers.length} transfers, ${athletes.length} athletes`);
+      if (transfers.length) {
+        const rows = transfers.map(t => ({
+          competition_id: comp.id,
+          transfer_id: Number(t.id),
+          athlete_id: t.athleteId != null ? Number(t.athleteId) : null,
+          origin_id: t.origin != null ? Number(t.origin) : null,
+          target_id: t.target != null ? Number(t.target) : null,
+          time: t.time ?? null,
+          price: t.price ?? null,
+          position_id: t.positionId != null ? Number(t.positionId) : null,
+          is_arrival: !!t.isArrival,
+          is_departure: !!t.isDeparture,
+          status_id: t.statusId != null ? Number(t.statusId) : null,
+          status_name: t.statusName ?? null,
+          data: JSON.stringify(t),
+          updated_at: new Date().toISOString(),
+        }));
+        const keys = Object.keys(rows[0]);
+        const placeholders = rows.map((_, ri) =>
+          '(' + keys.map((_, ci) => `$${ri * keys.length + ci + 1}`).join(', ') + ')'
+        ).join(', ');
+        const values = rows.flatMap(r => keys.map(k => r[k]));
+        await client.query(
+          `INSERT INTO competition_transfers (${keys.join(', ')}) VALUES ${placeholders}`,
+          values
+        );
+      }
+    });
+
+    log(`[comp=${comp.id}] Synced ${transfers.length} transfers, ${athletes.length} athletes (atomic)`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing transfers:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing transfers: ${e.message}`);
   }
 }
 
@@ -974,40 +1085,36 @@ async function syncSuggestionsForComp(comp) {
   try {
     const data = await api.getGameSuggestions(comp.id);
     const suggested = data?.suggestedGames ?? [];
-    if (!suggested.length) {
-      // Clear any stale suggestions for this comp.
-      await pool.query(
+
+    await withTransaction(async (client) => {
+      // Atomic: clear stale rows before inserting fresh ones.
+      await client.query(
         `DELETE FROM game_suggestions WHERE competition_id = $1`,
         [comp.id]
       );
-      log(`[comp=${comp.id}] 0 suggestions`);
-      return;
-    }
+      if (!suggested.length) return;
 
-    await pool.query(
-      `DELETE FROM game_suggestions WHERE competition_id = $1`,
-      [comp.id]
-    );
+      const rows = suggested.map(g => ({
+        game_id: Number(g.id),
+        competition_id: comp.id,
+        rank: g.rank ?? null,
+        data: JSON.stringify(g),
+        updated_at: new Date().toISOString(),
+      }));
+      const keys = Object.keys(rows[0]);
+      const placeholders = rows.map((_, ri) =>
+        '(' + keys.map((_, ci) => `$${ri * keys.length + ci + 1}`).join(', ') + ')'
+      ).join(', ');
+      const values = rows.flatMap(r => keys.map(k => r[k]));
+      await client.query(
+        `INSERT INTO game_suggestions (${keys.join(', ')}) VALUES ${placeholders}`,
+        values
+      );
+    });
 
-    const rows = suggested.map(g => ({
-      game_id: Number(g.id),
-      competition_id: comp.id,
-      rank: g.rank ?? null,
-      data: JSON.stringify(g),
-      updated_at: new Date().toISOString(),
-    }));
-    const keys = Object.keys(rows[0]);
-    const placeholders = rows.map((_, ri) =>
-      '(' + keys.map((_, ci) => `$${ri * keys.length + ci + 1}`).join(', ') + ')'
-    ).join(', ');
-    const values = rows.flatMap(r => keys.map(k => r[k]));
-    await pool.query(
-      `INSERT INTO game_suggestions (${keys.join(', ')}) VALUES ${placeholders}`,
-      values
-    );
-    log(`[comp=${comp.id}] Synced ${rows.length} suggestions`);
+    log(`[comp=${comp.id}] Synced ${suggested.length} suggestions (atomic)`);
   } catch (e) {
-    log(`[comp=${comp.id}] Error syncing suggestions:`, e.message);
+    logErr(`[comp=${comp.id}] Error syncing suggestions: ${e.message}`);
   }
 }
 
@@ -1017,30 +1124,35 @@ async function syncSuggestions() {
 }
 
 async function syncAll() {
+  currentSyncRunId = newSyncRunId();
   log('Running full sync (multi-comp)...');
-  await syncCatalog();
-  await syncCountries();
-  await syncGames();
-  await syncLiveGames();
-  await syncGamesResults();
-  await syncFixtures();
-  await syncStandings();
-  await syncBrackets();
-  await syncTournamentStats();
-  await syncTeamOfWeek();
-  await syncCompetitionHistory();
-  await syncNews();
-  await syncTrends();
-  await syncPredictions();
-  await syncOutrights();
-  await syncOdds();
-  await syncGameDetails();
-  await syncLiveStats();
-  await syncAthletes();
-  await syncVenues();
-  await syncTransfers();
-  await syncSuggestions();
-  log('Full sync complete');
+  try {
+    await syncCatalog();
+    await syncCountries();
+    await syncGames();
+    await syncLiveGames();
+    await syncGamesResults();
+    await syncFixtures();
+    await syncStandings();
+    await syncBrackets();
+    await syncTournamentStats();
+    await syncTeamOfWeek();
+    await syncCompetitionHistory();
+    await syncNews();
+    await syncTrends();
+    await syncPredictions();
+    await syncOutrights();
+    await syncOdds();
+    await syncGameDetails();
+    await syncLiveStats();
+    await syncAthletes();
+    await syncVenues();
+    await syncTransfers();
+    await syncSuggestions();
+    log('Full sync complete');
+  } finally {
+    currentSyncRunId = null;
+  }
 }
 
 module.exports = {

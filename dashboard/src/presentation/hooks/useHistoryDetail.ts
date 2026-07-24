@@ -132,7 +132,7 @@ export function useHistoryDetail(seasonNum: number | null, competitionId?: numbe
   const [lineups, setLineups] = useState<HistoricalMatchLineup | null>(null)
   const [loading, setLoading] = useState(true)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(
     async (signal?: AbortSignal) => {
       if (!seasonNum) return
@@ -157,7 +157,7 @@ export function useHistoryDetail(seasonNum: number | null, competitionId?: numbe
     },
     [seasonNum, competitionId]
   )
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()

@@ -9,7 +9,7 @@ export function useTeams(nationalOnly?: boolean, competitionId?: number | null) 
   const [teams, setTeams] = useState<Team[]>([])
   const [loading, setLoading] = useState(true)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(
     async (signal?: AbortSignal) => {
       try {
@@ -24,7 +24,7 @@ export function useTeams(nationalOnly?: boolean, competitionId?: number | null) 
     },
     [nationalOnly, competitionId]
   )
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -40,7 +40,7 @@ export function useTeam(id: number | null, competitionId?: number | null) {
   const [matches, setMatches] = useState<Game[]>([])
   const [loading, setLoading] = useState(false)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(
     async (signal?: AbortSignal) => {
       if (id == null) return
@@ -65,7 +65,7 @@ export function useTeam(id: number | null, competitionId?: number | null) {
     },
     [id, competitionId]
   )
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()

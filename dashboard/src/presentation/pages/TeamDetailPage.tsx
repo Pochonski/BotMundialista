@@ -31,7 +31,7 @@ export function TeamDetailPage() {
   const navigate = useNavigate()
   const teamId = useMemo(() => (id ? parseInt(id, 10) : null), [id])
   const { info, loading: infoLoading } = useTeamInfo(teamId)
-  const { games: recentForm, loading: formLoading } = useTeamRecentForm(teamId, 5)
+  const { games: recentForm } = useTeamRecentForm(teamId, 5)
   const { games: upcoming, loading: upcomingLoading } = useTeamUpcoming(teamId)
   const { transfers, loading: transfersLoading } = useCompetitionTransfers(
     info?.mainCompetitionId ?? null,

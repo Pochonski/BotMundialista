@@ -8,7 +8,7 @@ export function useHistoryStats(competitionId?: number | null) {
   const [stats, setStats] = useState<HistoryStats | null>(null)
   const [loading, setLoading] = useState(true)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true)
@@ -20,7 +20,7 @@ export function useHistoryStats(competitionId?: number | null) {
       if (!signal?.aborted) setLoading(false)
     }
   }, [competitionId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()

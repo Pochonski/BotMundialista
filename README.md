@@ -38,8 +38,13 @@ Asistente de fútbol y apuestas multi-competición, con tres interfaces integrad
 - **OCR**: Tesseract.js extrae texto de cupones de apuestas.
 - **Backend API**: Express + Helmet + CORS + rate-limit + Pino.
 - **Frontend**: React 19 + TypeScript + Tailwind 4 + Zod 4 (Clean Architecture).
-- **DB**: Supabase PostgreSQL vía `pg.Pool` (sin ORM), 19 tablas cache JSONB.
+- **DB**: Supabase PostgreSQL vía dos caminos:
+  - **Supabase JS (HTTP)** cuando `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` están en env (default en Vercel): sin conexiones persistentes, ideal para serverless.
+  - **pg Pool** (fallback): pool con `max=1`, usado para queries complejas (CTE, JOINs, JSONB) vía `db.execAdvanced()`.
+  - 19 tablas cache JSONB.
 - **Fuente datos**: API web de 365scores (`webws.365scores.com`).
+
+> Activar el path HTTP en Vercel: ver [docs/migration-supabase-vercel.md §10](#activar-supabase-js-opcional). Verifica con `node scripts/check-supabase-config.js`.
 - **Scheduling**: `node-cron` con 20 jobs en capas (15s, 1m, 2m, 5m, 10m, 6h, 24h).
 
 ## Stack
@@ -125,3 +130,25 @@ Cosas que no se pueden automatizar desde código y requieren acción externa:
 - **Renombrar el proyecto en Supabase**: el proyecto Supabase se llama "BotFutbolista" (un tercer nombre, distinto de `BotMundialista`/carpeta y `ScoreHub`/app). Para alinearlo, ir a la consola de Supabase → Project Settings → General → Name. No afecta a código ni connection strings.
 - **Renombrar la carpeta del repo** `BotMundialista` → `scorehub`: requiere rename en GitHub + actualizar clones locales y el deploy de Vercel.
 - **Instalar dependencias del root**: `cors`, `express-rate-limit`, `helmet`, `pino`, `pino-http`, `pino-pretty` están en `package.json` pero no en `node_modules`. El `utils/logger.js` tiene fallback a `console`, pero para usar pino correctamente correr `npm install` en la raíz.
+
+## Activar Supabase JS (HTTP) en Vercel
+
+Por defecto el wrapper cae a `pg.Pool` (max=1) porque las credenciales HTTP no están configuradas. Para migrar al path HTTP sin conexiones persistentes (ideal en serverless):
+
+1. Vercel Dashboard → Project Settings → Environment Variables
+2. Agregar `SUPABASE_URL=https://jcfulxsqayscvqgxemhv.supabase.co`
+3. Agregar `SUPABASE_SERVICE_ROLE_KEY=<eyJ...>` (NO la anon key — service_role hace bypass de RLS)
+4. Redeploy para tomar efecto
+5. Verifica en [`/api/football/health`](https://scorehub-pocho.vercel.app/api/football):
+   - `dbStrategy: "http+pg-fallback"` ← HTTP activado
+   - `dbStats.supabaseCalls` debería crecer con cada request
+
+Diagnóstico local en cualquier momento:
+
+```bash
+node scripts/check-supabase-config.js
+```
+
+Salidas:
+- `✓ Supabase JS HTTP path activated` — env vars OK
+- `⚠ Supabase JS not configured, using pg fallback` — agregar env vars

@@ -92,7 +92,7 @@ export function useFeaturedGame(competitionId?: number | null) {
   const [game, setGame] = useState<Game | null>(null)
   const [loading, setLoading] = useState(true)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true)
@@ -117,7 +117,7 @@ export function useFeaturedGame(competitionId?: number | null) {
       if (!signal?.aborted) setLoading(false)
     }
   }, [competitionId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()

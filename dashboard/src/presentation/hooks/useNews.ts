@@ -11,7 +11,7 @@ export function useNews(initialLimit = PAGE_SIZE, competitionId?: number | null)
   const [hasMore, setHasMore] = useState(true)
   const limitRef = useRef(initialLimit)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true)
@@ -28,7 +28,7 @@ export function useNews(initialLimit = PAGE_SIZE, competitionId?: number | null)
       if (!signal?.aborted) setLoading(false)
     }
   }, [competitionId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   const loadMore = useCallback(async () => {
     if (loading || !hasMore) return

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { RawGame } from '@/domain/entities/RawGame'
-import { DiContainer } from '@/infrastructure/di/DiContainer'
 
 // ============================================================================
 // useCompetitionTransfers
@@ -44,7 +43,7 @@ export function useCompetitionTransfers(competitionId: number | null, teamId?: n
   const [transfers, setTransfers] = useState<Transfer[]>([])
   const [loading, setLoading] = useState(false)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     if (competitionId == null || teamId == null) {
       setTransfers([])
@@ -65,7 +64,7 @@ export function useCompetitionTransfers(competitionId: number | null, teamId?: n
       if (!signal?.aborted) setLoading(false)
     }
   }, [competitionId, teamId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -84,7 +83,7 @@ export function useCompetitionTransfersSummary(competitionId: number | null) {
   const [summary, setSummary] = useState<TransferSummary[]>([])
   const [loading, setLoading] = useState(false)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     if (competitionId == null) {
       setSummary([])
@@ -104,7 +103,7 @@ export function useCompetitionTransfersSummary(competitionId: number | null) {
       if (!signal?.aborted) setLoading(false)
     }
   }, [competitionId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -127,7 +126,7 @@ export function useGameSuggestions(competitionId: number | null) {
   const [suggestions, setSuggestions] = useState<RawGame[]>([])
   const [loading, setLoading] = useState(false)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     if (competitionId == null) {
       setSuggestions([])
@@ -148,7 +147,7 @@ export function useGameSuggestions(competitionId: number | null) {
       if (!signal?.aborted) setLoading(false)
     }
   }, [competitionId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -176,7 +175,7 @@ export function useStandingsSeasons(competitionId: number | null) {
   const [seasons, setSeasons] = useState<SeasonOption[]>([])
   const [loading, setLoading] = useState(false)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     if (competitionId == null) {
       setSeasons([])
@@ -197,7 +196,7 @@ export function useStandingsSeasons(competitionId: number | null) {
       if (!signal?.aborted) setLoading(false)
     }
   }, [competitionId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -258,7 +257,7 @@ export function useCompetitionInsights(competitionId: number | null) {
   const [insights, setInsights] = useState<CompetitionInsights | null>(null)
   const [loading, setLoading] = useState(false)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     if (competitionId == null) {
       setInsights(null)
@@ -278,7 +277,7 @@ export function useCompetitionInsights(competitionId: number | null) {
       if (!signal?.aborted) setLoading(false)
     }
   }, [competitionId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -321,7 +320,7 @@ export function useTeamInfo(teamId: number | null) {
   const [info, setInfo] = useState<TeamInfo | null>(null)
   const [loading, setLoading] = useState(false)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     if (teamId == null) {
       setInfo(null)
@@ -341,7 +340,7 @@ export function useTeamInfo(teamId: number | null) {
       if (!signal?.aborted) setLoading(false)
     }
   }, [teamId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -360,7 +359,7 @@ export function useTeamRecentForm(teamId: number | null, numOfGames = 5) {
   const [games, setGames] = useState<RawGame[]>([])
   const [loading, setLoading] = useState(false)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     if (teamId == null) {
       setGames([])
@@ -381,7 +380,7 @@ export function useTeamRecentForm(teamId: number | null, numOfGames = 5) {
       if (!signal?.aborted) setLoading(false)
     }
   }, [teamId, numOfGames])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -399,7 +398,7 @@ export function useTeamUpcoming(teamId: number | null) {
   const [games, setGames] = useState<RawGame[]>([])
   const [loading, setLoading] = useState(false)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     if (teamId == null) {
       setGames([])
@@ -419,7 +418,7 @@ export function useTeamUpcoming(teamId: number | null) {
       if (!signal?.aborted) setLoading(false)
     }
   }, [teamId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -458,7 +457,7 @@ export function useTrendDetails(trendId: number | null) {
   const [details, setDetails] = useState<TrendDetails | null>(null)
   const [loading, setLoading] = useState(false)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     if (trendId == null) {
       setDetails(null)
@@ -479,7 +478,7 @@ export function useTrendDetails(trendId: number | null) {
       if (!signal?.aborted) setLoading(false)
     }
   }, [trendId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()

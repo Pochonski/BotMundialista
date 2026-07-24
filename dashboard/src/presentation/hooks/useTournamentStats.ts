@@ -14,7 +14,7 @@ export function useTournamentStats(competitionId?: number | null, seasonNum?: nu
   const [teamOfWeek, setTeamOfWeek] = useState<TeamOfWeekData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true)
@@ -44,7 +44,7 @@ export function useTournamentStats(competitionId?: number | null, seasonNum?: nu
       if (!signal?.aborted) setLoading(false)
     }
   }, [competitionId, seasonNum])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()

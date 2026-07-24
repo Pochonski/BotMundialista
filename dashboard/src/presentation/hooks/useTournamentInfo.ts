@@ -8,7 +8,7 @@ export function useTournamentInfo(competitionId?: number | null) {
   const [info, setInfo] = useState<TournamentInfo | null>(null)
   const [loading, setLoading] = useState(true)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(
     async (signal?: AbortSignal) => {
       try {
@@ -23,7 +23,7 @@ export function useTournamentInfo(competitionId?: number | null) {
     },
     [competitionId]
   )
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()

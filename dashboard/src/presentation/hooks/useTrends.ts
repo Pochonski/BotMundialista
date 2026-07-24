@@ -6,7 +6,7 @@ export function useTrends(competitionId?: number | null) {
   const [trends, setTrends] = useState<Trend[]>([])
   const [loading, setLoading] = useState(true)
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+   
   const fetch = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true)
@@ -19,7 +19,7 @@ export function useTrends(competitionId?: number | null) {
       if (!signal?.aborted) setLoading(false)
     }
   }, [competitionId])
-  /* eslint-enable react-hooks/exhaustive-deps */
+   
 
   useEffect(() => {
     const ctrl = new AbortController()

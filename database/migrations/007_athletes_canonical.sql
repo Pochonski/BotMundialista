@@ -29,6 +29,21 @@ ALTER TABLE athletes
   ) STORED;
 
 -- 4. Index on canonical_id for /player/:id and search-by-canonical lookups.
+--    Antes de crear el UNIQUE index, deduplicar filas con el mismo
+--    canonical_id. Mantenemos la fila más completa (mayor data) y la
+--    más reciente, y redistribuimos las canonical_id antiguas.
+DELETE FROM athletes a
+USING athletes b
+WHERE a.canonical_id IS NOT NULL
+  AND b.canonical_id = a.canonical_id
+  AND (
+    -- Preferir la fila con más data (más completa)
+    length(b.data::text) > length(a.data::text)
+    OR (length(b.data::text) = length(a.data::text)
+        AND b.updated_at > a.updated_at)
+  )
+  AND a.id < b.id;  -- determinismo (mantén siempre el id mayor en empate)
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_athletes_canonical_id
   ON athletes (canonical_id)
   WHERE canonical_id IS NOT NULL;

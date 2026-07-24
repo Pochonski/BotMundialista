@@ -222,7 +222,15 @@ CREATE TABLE IF NOT EXISTS competition_aliases (
 
 CREATE INDEX IF NOT EXISTS idx_comp_alias ON competition_aliases (alias);
 
--- Aliases por defecto para Mundial 2026 (ID 5930)
+-- Aliases por defecto. Importante: las filas padre deben existir ANTES de
+-- insertar aliases. Si recién corres migrations en una DB fresca, el sync
+-- de catálogo no habrá poblado `competitions` aún, por lo que estos
+-- inserts fallarían por FK. La solución es inyectar un row stub para
+-- 5930 que el sync posterior enriquecerá.
+INSERT INTO competitions (id, data, updated_at)
+VALUES (5930, '{"name":"Mundial","_stub":true}'::jsonb, now())
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO competition_aliases (competition_id, alias) VALUES
   (5930, 'mundial'),
   (5930, 'mundial 2026'),

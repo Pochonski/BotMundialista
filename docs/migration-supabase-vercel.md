@@ -389,3 +389,47 @@ Si algo falla:
 4. ✅ Build frontend exitoso (`dashboard/dist/`)
 5. **Deploy:** `npx vercel --prod`
 6. Configurar env vars en Vercel Dashboard (sección 5.5)
+
+## 9. Migration runner
+
+Las migrations se rastrean en la tabla `schema_migrations` (creada en migration 013).
+
+**Para aplicar nuevas migrations:**
+
+```bash
+# 1. Crear archivo SQL numerado, ej: database/migrations/018_my_change.sql
+# 2. Cerrar con:
+#    INSERT INTO schema_migrations (name) VALUES ('018_my_change')
+#      ON CONFLICT (name) DO NOTHING;
+
+# 3. Aplicar manualmente:
+PGSSLMODE=require psql -h $DB_HOST -U $DB_USER -d $DB_NAME \
+  -f database/migrations/018_my_change.sql
+```
+
+Cada migration DEBE terminar con un `INSERT` en `schema_migrations` (excepto 013 que es la que crea la tabla). Esto es idempotente.
+
+Orden de migrations aplicadas:
+
+| # | Nombre | Resumen |
+|---|--------|---------|
+| 002 | scores365_state | live poller state |
+| 003 | bet_followers | tickets con chat_ids TEXT[] |
+| 004 | scores365_data | competiciones, juegos, atletas, news |
+| 005 | venues | venues 365scores |
+| 006 | match_detail | overviews, h2h, pre_stats, lineups, stats |
+| 007 | athletes_canonical | re-key a canonical_id + dedup |
+| 008 | active_competitions | multi-comp table |
+| 009 | transfers_suggestions | transfers + suggestions |
+| 010 | history_enhancements | champion lookup + values JSONB |
+| 011 | athletes_source | source CHECK constraint |
+| 012 | competitors_name_trgm | pg_trgm GIN index |
+| 013 | schema_migrations | tracking table |
+| 014 | add_indexes | 9 nuevos índices |
+| 015 | check_constraints | CHECKs en apuestas, selecciones, eventos, followers |
+| 016 | foreign_keys | FKs hacia usuarios (apuestas, equipos_seguidos, historial) |
+| 017 | baseline_to_timestamptz | TIMESTAMP → TIMESTAMPTZ en tablas baseline |
+
+## 10. Rollback strategy
+
+Cada migration tiene un contraparte de rollback documentada en `docs/refactor-plans/03-data-model.md`. Los archivos `NNN_rollback.sql` NO se aplican automáticamente — sirven como guía si una migration falla a medio aplicar.

@@ -433,3 +433,71 @@ Orden de migrations aplicadas:
 ## 10. Rollback strategy
 
 Cada migration tiene un contraparte de rollback documentada en `docs/refactor-plans/03-data-model.md`. Los archivos `NNN_rollback.sql` NO se aplican automáticamente — sirven como guía si una migration falla a medio aplicar.
+
+## 11. Activar Supabase JS (HTTP) en Vercel
+
+Por defecto `database/db.js` cae a `pg.Pool(max=1)` cuando `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` no están configuradas. Activar el wrapper HTTP elimina conexiones persistentes (mejor para serverless) y reduce la contención del pool.
+
+### Paso 1 — Obtener credenciales desde Supabase
+
+1. Ve a <https://supabase.com/dashboard/project/jcfulxsqayscvqgxemhv>
+2. **Settings → API**
+3. Sección **Project API keys**:
+   - Copia **URL** (formato `https://jcfulxsqayscvqgxemhv.supabase.co`)
+   - Copia **service_role** (NO anon) — es la clave que bypass RLS y tiene full admin access
+
+> **Importante**: la clave `service_role` es SECRET. NUNCA commitearla al repo. Solo añadirla en el dashboard de Vercel.
+
+### Paso 2 — Configurar en Vercel
+
+1. Ve a <https://vercel.com/dashboard> → tu proyecto (`scorehub` o `botmundialista`)
+2. **Settings → Environment Variables**
+3. Añadir dos variables:
+   - `SUPABASE_URL` = `https://jcfulxsqayscvqgxemhv.supabase.co`
+   - `SUPABASE_SERVICE_ROLE_KEY` = la JWT que copiaste
+4. Marcar para **Production**, **Preview** y **Development** (opcional)
+5. Save → trigger automático de redeploy (o manual con `npx vercel --prod`)
+
+### Paso 3 — Validar
+
+```bash
+# Desde cualquier lugar con el repo (sin credenciales, devuelve error controlado):
+node scripts/check-supabase-config.js
+
+# Esperado cuando TODO está bien:
+# ✓ Supabase JS HTTP path activated
+# ✓ HTTP roundtrip to https://jcfulxsqayscvqgxemhv.supabase.co/rest/v1 succeeded in <N>ms
+# ✓ HTTP query to active_competitions returned N rows
+#  → first row: id=...
+```
+
+Verificar también en producción:
+
+```bash
+curl https://scorehub-pocho.vercel.app/api/football/health | jq
+```
+
+Debe mostrar `"dbStrategy": "http+pg-fallback"` y `dbStats.supabaseCalls > 0` después de unos requests.
+
+### Rollback si algo falla
+
+1. Vercel → Settings → Environment Variables → desactivar (o borrar) las dos vars
+2. Re-deploy → el wrapper cae automáticamente a pg fallback
+
+### Por qué service_role y no anon key
+
+| Key | Permisos | Quién debería usarla |
+|---|---|---|
+| `anon` | RLS-enabled (políticas de seguridad) | Cliente frontend (sin secrets) |
+| `service_role` | Bypass RLS, full admin | Backend server-side SOLAMENTE |
+
+El backend en Vercel lee la service_role del env var y la pasa al cliente Supabase JS que ejecuta SQL con bypass de RLS. El frontend NUNCA debería ver esta clave.
+
+### Monitoreo post-activación
+
+```bash
+# Ver ratio de llamadas HTTP vs pg:
+watch 'curl -s https://scorehub-pocho.vercel.app/api/football/health | jq .dbStats'
+```
+
+Esperado en producción: `supabasePercent > 80%` después de los primeros minutos de tráfico.

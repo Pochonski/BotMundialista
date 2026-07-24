@@ -23,7 +23,7 @@
 
 const { getClient, isEnabled } = require('./supabaseClient');
 const { pool } = require('./connection');
-const { logger } = require('../utils/logger');
+const logger = require('../utils/logger');
 const { recordSupabaseCall, recordSupabaseError, recordPgCall, recordPgError } = require('../utils/dbStats');
 
 // ============================================================================
